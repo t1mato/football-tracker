@@ -1,0 +1,30 @@
+# Secrets — never commit
+.dlt/secrets.toml
+.env
+*.duckdb
+*.duckdb.wal
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# dbt
+transform/target/
+transform/dbt_packages/
+transform/logs/
+
+# Dagster
+.dagster_home/
+orchestration/tmp*/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+# Scratch
+scratch/
