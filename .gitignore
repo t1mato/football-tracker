@@ -28,3 +28,7 @@ orchestration/tmp*/
 
 # Scratch
 scratch/
+
+# Private working docs — design notes, roadmap, agent instructions
+CLAUDE.md
+PLAN.md
