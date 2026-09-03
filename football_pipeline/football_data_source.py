@@ -231,6 +231,48 @@ def iter_squad_observations(
                 }
 
 
+def iter_scorers(
+    cache: ResponseCache,
+    seasons: tuple[int, ...],
+    codes: tuple[str, ...] = COMPETITIONS,
+    limit: int = SCORERS_LIMIT,
+) -> Iterator[dict[str, Any]]:
+    """One row per player per competition per season.
+
+    Merged on (competition_code, season_id, player_id), never replaced.
+    Recurring runs fetch only the current season, so a full refresh would
+    delete every backfilled 2023-2025 season on every nightly run.
+
+    The endpoint defaults to 10 rows and silently truncates -- `limit` is
+    always sent explicitly. `?limit=100` returned all 49 scorers in the
+    probe, so there is no top-N truncation to worry about, and goal counts
+    only rise within a season, so merge (not replace) is also sufficient to
+    keep them current.
+    """
+    for code in codes:
+        for season in seasons:
+            payload = cache.get(
+                f"competitions/{code}/scorers",
+                {"season": season, "limit": limit},
+            )
+            season_id = (payload.get("season") or {}).get("id")
+            for entry in payload.get("scorers", []):
+                player = entry.get("player") or {}
+                team = entry.get("team") or {}
+                yield {
+                    "competition_code": code,
+                    "season_id": season_id,
+                    "player_id": player.get("id"),
+                    "player_name": player.get("name"),
+                    "team_id": team.get("id"),
+                    "team_name": team.get("name"),
+                    "played_matches": entry.get("playedMatches"),
+                    "goals": entry.get("goals"),
+                    "assists": entry.get("assists"),
+                    "penalties": entry.get("penalties"),
+                }
+
+
 def iter_standings(
     cache: ResponseCache,
     snapshot_on: date,

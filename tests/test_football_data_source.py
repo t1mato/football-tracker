@@ -14,6 +14,7 @@ from football_pipeline.football_data_source import (
     iter_competitions,
     iter_matches,
     iter_players,
+    iter_scorers,
     iter_squad_observations,
     iter_standings,
     iter_teams,
@@ -396,3 +397,50 @@ def test_standings_rerun_on_the_same_day_produces_identical_rows() -> None:
     second = list(iter_standings(cache, snapshot_on=date(2026, 9, 3), codes=("PL",)))
 
     assert first == second
+
+
+SCORERS_PAYLOAD = {
+    "count": 1,
+    "filters": {"season": "2026", "limit": 100},
+    "competition": {"id": 2021, "code": "PL", "name": "Premier League"},
+    "season": {"id": 2502, "startDate": "2026-08-21", "endDate": "2027-05-30",
+               "currentMatchday": 3, "winner": None},
+    "scorers": [{
+        "player": {"id": 3257, "name": "Bruno Fernandes", "position": "Midfield",
+                   "dateOfBirth": "1994-09-08", "nationality": "Portugal"},
+        "team": {"id": 66, "name": "Manchester United FC"},
+        "playedMatches": 2, "goals": 3, "assists": 1, "penalties": 1,
+    }],
+}
+
+
+@responses.activate
+def test_scorers_always_request_an_explicit_limit() -> None:
+    """The endpoint defaults to 10 rows and silently truncates. ?limit=100
+    returned all 49 in the probe.
+    """
+    responses.get(f"{BASE_URL}/competitions/PL/scorers",
+                  json=SCORERS_PAYLOAD, status=200)
+
+    list(iter_scorers(ResponseCache(make_client()), seasons=(2026,), codes=("PL",)))
+
+    assert responses.calls[0].request.params["limit"] == "100"
+
+
+@responses.activate
+def test_scorers_key_on_competition_season_and_player() -> None:
+    """Merged, never replaced: a current-season run must not delete the
+    backfilled seasons, which a full refresh would do nightly.
+    """
+    responses.get(f"{BASE_URL}/competitions/PL/scorers",
+                  json=SCORERS_PAYLOAD, status=200)
+
+    rows = list(iter_scorers(ResponseCache(make_client()),
+                             seasons=(2026,), codes=("PL",)))
+
+    assert len(rows) == 1
+    assert rows[0]["competition_code"] == "PL"
+    assert rows[0]["season_id"] == 2502
+    assert rows[0]["player_id"] == 3257
+    assert rows[0]["goals"] == 3
+    assert rows[0]["team_id"] == 66
