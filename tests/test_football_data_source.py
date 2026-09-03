@@ -15,6 +15,7 @@ from football_pipeline.football_data_source import (
     iter_matches,
     iter_players,
     iter_scorers,
+    iter_seasons,
     iter_squad_observations,
     iter_standings,
     iter_teams,
@@ -444,3 +445,57 @@ def test_scorers_key_on_competition_season_and_player() -> None:
     assert rows[0]["player_id"] == 3257
     assert rows[0]["goals"] == 3
     assert rows[0]["team_id"] == 66
+
+
+@responses.activate
+def test_seasons_include_historical_ones_from_the_matches_payload(
+    pl_matches: dict[str, Any],
+) -> None:
+    """Deriving seasons from /competitions alone yields only the current one.
+
+    Every backfilled match would then join to a missing season and the Season
+    Archive page would have nothing to browse.
+    """
+    responses.get(f"{BASE_URL}/competitions", json=COMPETITIONS_PAYLOAD, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/matches", json=pl_matches, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/scorers", json=SCORERS_PAYLOAD, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/standings",
+                  json=STANDINGS_PAYLOAD, status=200)
+
+    rows = list(iter_seasons(ResponseCache(make_client()),
+                             seasons=(2026,), codes=("PL",)))
+
+    ids = {r["id"] for r in rows}
+    assert 2502 in ids
+    assert all(r["start_date"] for r in rows)
+
+
+@responses.activate
+def test_seasons_are_deduplicated_by_id(pl_matches: dict[str, Any]) -> None:
+    """The same season object appears in several envelopes; one row each."""
+    responses.get(f"{BASE_URL}/competitions", json=COMPETITIONS_PAYLOAD, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/matches", json=pl_matches, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/scorers", json=SCORERS_PAYLOAD, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/standings",
+                  json=STANDINGS_PAYLOAD, status=200)
+
+    rows = list(iter_seasons(ResponseCache(make_client()),
+                             seasons=(2026,), codes=("PL",)))
+
+    assert len(rows) == len({r["id"] for r in rows})
+
+
+@responses.activate
+def test_seasons_tolerate_a_competition_with_no_standings_yet(
+    pl_matches: dict[str, Any],
+) -> None:
+    """CL standings 404 in the summer; harvesting must not die with it."""
+    responses.get(f"{BASE_URL}/competitions", json=COMPETITIONS_PAYLOAD, status=200)
+    responses.get(f"{BASE_URL}/competitions/CL/matches", json=pl_matches, status=200)
+    responses.get(f"{BASE_URL}/competitions/CL/scorers", json=SCORERS_PAYLOAD, status=200)
+    responses.get(f"{BASE_URL}/competitions/CL/standings", json={}, status=404)
+
+    rows = list(iter_seasons(ResponseCache(make_client()),
+                             seasons=(2026,), codes=("CL",)))
+
+    assert rows

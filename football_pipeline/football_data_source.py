@@ -5,6 +5,7 @@ dlt's runtime; the `@dlt.resource` wrappers at the bottom are the only dlt
 surface.
 """
 
+import contextlib
 from collections.abc import Iterator, Mapping
 from datetime import date
 from typing import Any
@@ -271,6 +272,83 @@ def iter_scorers(
                     "assists": entry.get("assists"),
                     "penalties": entry.get("penalties"),
                 }
+
+
+def _season_row(season: Mapping[str, Any], code: str) -> dict[str, Any] | None:
+    """Build a season row, or None if the object is empty/idless.
+
+    Not every envelope carries a season -- a competition mid-registration or
+    an edge-case payload can omit it -- so the caller must be able to skip
+    the candidate rather than yield a row with a null id.
+    """
+    if not season.get("id"):
+        return None
+    winner = season.get("winner") or {}
+    return {
+        "id": season["id"],
+        "competition_code": code,
+        "start_date": season.get("startDate"),
+        "end_date": season.get("endDate"),
+        "current_matchday": season.get("currentMatchday"),
+        "winner_team_id": winner.get("id") if isinstance(winner, dict) else None,
+    }
+
+
+def iter_seasons(
+    cache: ResponseCache,
+    seasons: tuple[int, ...],
+    codes: tuple[str, ...] = COMPETITIONS,
+) -> Iterator[dict[str, Any]]:
+    """One row per season, harvested from every envelope that carries one.
+
+    /competitions only exposes each competition's *current* season, so
+    deriving dim_seasons from it alone would leave every backfilled season
+    missing -- historical matches would then join to a season row that does
+    not exist, and the Season Archive page would have nothing to browse.
+    matches, scorers and standings envelopes all carry a full season object,
+    and all three are already being fetched by other resources, so reading
+    them here through the ResponseCache costs no extra requests, whichever
+    order dlt happens to run resources in.
+
+    The standings call is wrapped in NotFoundError, same as iter_standings:
+    /competitions/CL/standings 404s all summer, and that must not stop
+    harvesting for every other competition.
+
+    Season ids are globally unique across competitions, so deduplication is
+    a single `seen` set keyed on id alone.
+    """
+    seen: set[int] = set()
+
+    competitions = cache.get("competitions")
+    for comp in competitions["competitions"]:
+        if comp["code"] not in codes:
+            continue
+        row = _season_row(comp.get("currentSeason") or {}, comp["code"])
+        if row and row["id"] not in seen:
+            seen.add(row["id"])
+            yield row
+
+    for code in codes:
+        envelopes: list[Mapping[str, Any]] = []
+        for season in seasons:
+            envelopes.append(cache.get(f"competitions/{code}/matches", {"season": season}))
+            envelopes.append(
+                cache.get(
+                    f"competitions/{code}/scorers",
+                    {"season": season, "limit": SCORERS_LIMIT},
+                )
+            )
+        with contextlib.suppress(NotFoundError):
+            envelopes.append(cache.get(f"competitions/{code}/standings"))
+
+        for envelope in envelopes:
+            candidates = [envelope.get("season") or {}]
+            candidates += [m.get("season") or {} for m in envelope.get("matches", [])]
+            for candidate in candidates:
+                row = _season_row(candidate, code)
+                if row and row["id"] not in seen:
+                    seen.add(row["id"])
+                    yield row
 
 
 def iter_standings(
