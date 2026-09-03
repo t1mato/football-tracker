@@ -77,7 +77,7 @@ COMPETITIONS_PAYLOAD = {
     "competitions": [
         {
             "id": 2021, "code": "PL", "name": "Premier League", "type": "LEAGUE",
-            "area": {"id": 2072, "name": "England"},
+            "area": {"id": 2072, "name": "England", "code": "ENG"},
             "currentSeason": {
                 "id": 2502, "startDate": "2026-08-21", "endDate": "2027-05-30",
                 "currentMatchday": 3, "winner": None,
@@ -143,7 +143,7 @@ ARSENAL = {
     "address": "75 Drayton Park London N5 1BU",
     "website": "http://www.arsenal.com", "founded": 1886,
     "clubColors": "Red / White", "venue": "Emirates Stadium",
-    "area": {"id": 2072, "name": "England"},
+    "area": {"id": 2072, "name": "England", "code": "ENG"},
     "coach": {"id": 11605, "name": "Mikel Arteta", "nationality": "Spain"},
     "runningCompetitions": [{"id": 2021, "code": "PL", "name": "Premier League"}],
     "staff": [],
@@ -162,7 +162,7 @@ CHELSEA = {
     "address": "Fulham Road London SW6 1HS",
     "website": "http://www.chelseafc.com", "founded": 1905,
     "clubColors": "Royal Blue / White", "venue": "Stamford Bridge",
-    "area": {"id": 2072, "name": "England"},
+    "area": {"id": 2072, "name": "England", "code": "ENG"},
     "coach": {"id": 12456, "name": "Enzo Maresca", "nationality": "Italy"},
     "runningCompetitions": [{"id": 2021, "code": "PL", "name": "Premier League"}],
     "staff": [],
@@ -188,6 +188,7 @@ def test_teams_carries_venue_and_coach_but_not_nested_lists() -> None:
     rows = list(iter_teams(ResponseCache(make_client()), codes=("PL", "CL")))
 
     assert rows[0]["venue_name"] == "Emirates Stadium"
+    assert rows[0]["area_code"] == "ENG"
     assert rows[0]["coach_name"] == "Mikel Arteta"
     assert "squad" not in rows[0]
     assert "runningCompetitions" not in rows[0]
