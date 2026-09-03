@@ -6,6 +6,7 @@ surface.
 """
 
 from collections.abc import Iterator, Mapping
+from datetime import date
 from typing import Any
 
 from football_pipeline.client import FootballDataClient, NotFoundError
@@ -115,3 +116,66 @@ def iter_teams(
                 "coach_name": coach.get("name"),
                 "last_updated": team.get("lastUpdated"),
             }
+
+
+def iter_players(
+    cache: ResponseCache, codes: tuple[str, ...] = COMPETITIONS
+) -> Iterator[dict[str, Any]]:
+    """One row per player, merged on id. SCD type 1: the current club wins.
+
+    The squad payload carries no team reference at all -- only id, name,
+    position, dateOfBirth, nationality -- so team_id is injected here from
+    the enclosing team. Without it the only way to recover which club a
+    player belongs to would be joining on dlt's internal _dlt_root_id hash
+    in dbt. History is not lost by the overwrite: iter_squad_observations
+    appends it separately.
+    """
+    for code in codes:
+        payload = cache.get(f"competitions/{code}/teams")
+        for team in payload["teams"]:
+            for player in team.get("squad") or []:
+                yield {
+                    "id": player["id"],
+                    "team_id": team["id"],
+                    "name": player.get("name"),
+                    "position": player.get("position"),
+                    "date_of_birth": player.get("dateOfBirth"),
+                    "nationality": player.get("nationality"),
+                }
+
+
+def iter_squad_observations(
+    cache: ResponseCache,
+    observed_on: date,
+    codes: tuple[str, ...] = COMPETITIONS,
+) -> Iterator[dict[str, Any]]:
+    """One row per player per team per UTC day. Costs no extra requests.
+
+    football-data.org serves only the CURRENT squad -- there is no
+    historical squad endpoint at any tier. iter_players merges on player id
+    (SCD type 1), so every run overwrites a player's club, which would
+    destroy transfer history permanently rather than deferring it. This
+    resource appends one row per player per team per UTC day so that
+    history is reconstructible later. Raw stays deliberately dumb --
+    mostly-identical daily rows. The model that collapses consecutive
+    identical days into validity intervals is deliberately not built here:
+    it is capability, and can be added whenever a history question is
+    actually asked.
+
+    `observed_on` is injected by the caller rather than read from the clock
+    in here, both because this project is UTC end-to-end and the caller
+    owns that decision, and because injecting it is what makes the date
+    assertable in a test instead of a matter of trust -- the same pattern
+    used for the clock in rate_limiter.RateLimiter.
+    """
+    stamp = observed_on.isoformat()
+    for code in codes:
+        payload = cache.get(f"competitions/{code}/teams")
+        for team in payload["teams"]:
+            for player in team.get("squad") or []:
+                yield {
+                    "team_id": team["id"],
+                    "player_id": player["id"],
+                    "observed_date": stamp,
+                    "position": player.get("position"),
+                }

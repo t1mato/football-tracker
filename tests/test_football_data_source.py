@@ -1,5 +1,6 @@
 """Tests for the football-data.org dlt source. No test opens a socket."""
 
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -7,7 +8,13 @@ import pytest
 import responses
 
 from football_pipeline.client import FootballDataClient, NotFoundError
-from football_pipeline.football_data_source import ResponseCache, iter_competitions, iter_teams
+from football_pipeline.football_data_source import (
+    ResponseCache,
+    iter_competitions,
+    iter_players,
+    iter_squad_observations,
+    iter_teams,
+)
 from football_pipeline.rate_limiter import RateLimiter
 
 BASE_URL = "https://api.football-data.org/v4"
@@ -187,3 +194,50 @@ def test_a_404_outside_standings_propagates_as_an_error() -> None:
 
     with pytest.raises(NotFoundError):
         list(iter_teams(ResponseCache(make_client()), codes=("XX",)))
+
+
+@responses.activate
+def test_players_carry_the_team_id_of_the_squad_that_embedded_them() -> None:
+    """The squad payload has no team_id; without injecting it here, dbt would
+    have to recover the link from dlt's _dlt_root_id.
+    """
+    responses.get(f"{BASE_URL}/competitions/PL/teams",
+                  json=teams_payload(ARSENAL), status=200)
+
+    rows = list(iter_players(ResponseCache(make_client()), codes=("PL",)))
+
+    assert {r["team_id"] for r in rows} == {57}
+    assert {r["id"] for r in rows} == {3189, 3319}
+    assert rows[0]["position"] == "Goalkeeper"
+    assert rows[0]["date_of_birth"] == "1994-10-03"
+
+
+@responses.activate
+def test_squad_observations_are_stamped_with_the_given_utc_date() -> None:
+    """observed_date is injected, never read from the clock in here, so the
+    UTC rule is testable rather than a matter of trust.
+    """
+    responses.get(f"{BASE_URL}/competitions/PL/teams",
+                  json=teams_payload(ARSENAL), status=200)
+
+    rows = list(iter_squad_observations(
+        ResponseCache(make_client()), observed_on=date(2026, 9, 3), codes=("PL",)
+    ))
+
+    assert len(rows) == 2
+    assert {r["observed_date"] for r in rows} == {"2026-09-03"}
+    assert {(r["team_id"], r["player_id"]) for r in rows} == {(57, 3189), (57, 3319)}
+
+
+@responses.activate
+def test_players_and_observations_share_one_teams_request() -> None:
+    """Both read the same payload; the run budget assumes one request."""
+    responses.get(f"{BASE_URL}/competitions/PL/teams",
+                  json=teams_payload(ARSENAL), status=200)
+    cache = ResponseCache(make_client())
+
+    list(iter_players(cache, codes=("PL",)))
+    list(iter_squad_observations(cache, observed_on=date(2026, 9, 3), codes=("PL",)))
+    list(iter_teams(cache, codes=("PL",)))
+
+    assert len(responses.calls) == 1
