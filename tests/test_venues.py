@@ -16,6 +16,7 @@ from football_pipeline.venues import (
     Venue,
     choose,
     geocode,
+    load_overrides,
     read_venue_names,
     write_csv,
 )
@@ -381,3 +382,70 @@ def test_a_venue_already_ending_in_stadium_is_not_retried() -> None:
     geocode("Wembley Stadium", area_code="ENG", search=search)
 
     assert len(search.calls) == 1
+
+
+def test_an_override_replaces_the_search_query() -> None:
+    """football-data.org still calls Napoli's ground Stadio San Paolo; it was
+    renamed to Diego Armando Maradona in 2020, so OSM has no such place.
+    """
+    search = FakeSearch([result(name="Stadio Diego Armando Maradona", country="it")])
+
+    venue = geocode(
+        "Stadio San Paolo",
+        area_code="ITA",
+        search=search,
+        overrides={"Stadio San Paolo": "Stadio Diego Armando Maradona"},
+    )
+
+    assert search.calls == [("Stadio Diego Armando Maradona", "it")]
+    assert venue.venue_name == "Stadio San Paolo"  # the warehouse key is unchanged
+    assert venue.query == "Stadio Diego Armando Maradona"
+    assert venue.needs_review is False
+
+
+def test_without_an_override_the_query_is_the_venue_name() -> None:
+    search = FakeSearch([result()])
+
+    venue = geocode("Emirates Stadium", area_code="ENG", search=search, overrides={})
+
+    assert venue.query == "Emirates Stadium"
+
+
+def test_an_override_is_still_validated_and_can_fail() -> None:
+    """An override is a hint, not ground truth. A wrong one must produce a
+    flagged row, never a confident coordinate in the wrong country.
+    """
+    search = FakeSearch([result(country="us")])
+
+    venue = geocode(
+        "Somewhere",
+        area_code="ENG",
+        search=search,
+        overrides={"Somewhere": "A Misremembered Name"},
+    )
+
+    assert venue.needs_review is True
+    assert venue.latitude is None
+
+
+def test_the_stadium_retry_appends_to_the_overridden_query() -> None:
+    search = FakeSearch([], [result()])
+
+    geocode("Old Name", area_code="ENG", search=search, overrides={"Old Name": "New Name"})
+
+    assert [query for query, _ in search.calls] == ["New Name", "New Name stadium"]
+
+
+def test_overrides_load_from_csv_ignoring_blank_rows(tmp_path) -> None:
+    path = tmp_path / "venue_overrides.csv"
+    path.write_text(
+        "venue_name,search_query,reason\n"
+        "Camp Nou,Spotify Camp Nou,renamed by sponsor\n"
+        ",,\n"
+        "Stadio San Paolo,Stadio Diego Armando Maradona,renamed 2020\n"
+    )
+
+    assert load_overrides(path) == {
+        "Camp Nou": "Spotify Camp Nou",
+        "Stadio San Paolo": "Stadio Diego Armando Maradona",
+    }

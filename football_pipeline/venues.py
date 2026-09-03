@@ -74,6 +74,7 @@ class Venue:
     capacity: int | None
     needs_review: bool
     note: str
+    query: str = ""
 
 
 def _capacity(picked: Mapping[str, Any]) -> int | None:
@@ -93,11 +94,19 @@ def geocode(
     venue_name: str,
     area_code: str,
     search: Callable[[str, str], Sequence[Mapping[str, Any]]],
+    overrides: Mapping[str, str] | None = None,
 ) -> Venue:
-    """Resolve one venue name to a coordinate, or flag why it could not be."""
+    """Resolve one venue name to a coordinate, or flag why it could not be.
+
+    `venue_name` stays the warehouse key even when an override changes what
+    is searched -- raw.teams still calls Napoli's ground Stadio San Paolo.
+    """
+    query = (overrides or {}).get(venue_name, venue_name)
 
     def flagged(country: str, note: str) -> Venue:
-        return Venue(venue_name, area_code, country, None, None, "", None, True, note)
+        return Venue(
+            venue_name, area_code, country, None, None, "", None, True, note, query
+        )
 
     iso = COUNTRY_CODES.get(area_code.upper(), "")
     if not iso:
@@ -105,7 +114,7 @@ def geocode(
         # second of our 1 req/sec budget to return something we must reject.
         return flagged("", f"country not mapped: {area_code!r}")
 
-    picked, note = choose(search(venue_name, iso), iso)
+    picked, note = choose(search(query, iso), iso)
 
     # OSM's name is often longer than the API's -- "Elland Road" matches only
     # the road, while "Elland Road stadium" finds the ground. Retry only a
@@ -114,9 +123,9 @@ def geocode(
     if (
         picked is None
         and note.startswith("no match")
-        and not venue_name.lower().endswith("stadium")
+        and not query.lower().endswith("stadium")
     ):
-        picked, note = choose(search(f"{venue_name} stadium", iso), iso)
+        picked, note = choose(search(f"{query} stadium", iso), iso)
 
     if picked is None:
         return flagged(iso, note)
@@ -136,6 +145,7 @@ def geocode(
         capacity=_capacity(picked),
         needs_review=False,
         note="",
+        query=query,
     )
 
 
@@ -253,6 +263,7 @@ CSV_FIELDS = (
     "capacity",
     "needs_review",
     "note",
+    "query",
     "display_name",
 )
 
@@ -278,6 +289,7 @@ def write_csv(venues: Iterable[Venue], path: Path) -> None:
                     "capacity": "" if venue.capacity is None else venue.capacity,
                     "needs_review": "true" if venue.needs_review else "false",
                     "note": venue.note,
+                    "query": venue.query,
                     "display_name": venue.display_name,
                 }
             )
@@ -285,6 +297,26 @@ def write_csv(venues: Iterable[Venue], path: Path) -> None:
 
 DEFAULT_DB = Path("football_data.duckdb")
 DEFAULT_OUT = Path("transform/seeds/venues.csv")
+DEFAULT_OVERRIDES = Path("transform/seeds/venue_overrides.csv")
+
+
+def load_overrides(path: Path = DEFAULT_OVERRIDES) -> dict[str, str]:
+    """Map a raw venue name to a better search string.
+
+    Overrides supply a *query*, never a coordinate. Every result they produce
+    still goes through the same country and stadium-type validation, so a
+    misremembered rename fails as a flagged row rather than quietly planting
+    a stadium in the wrong city. Hand-written coordinates would bypass
+    exactly the check that makes this safe.
+    """
+    if not path.exists():
+        return {}
+    with path.open(newline="", encoding="utf-8") as handle:
+        return {
+            row["venue_name"]: row["search_query"]
+            for row in csv.DictReader(handle)
+            if row.get("venue_name") and row.get("search_query")
+        }
 
 
 def read_venue_names(db_path: Path = DEFAULT_DB) -> list[tuple[str, str]]:
@@ -317,11 +349,14 @@ def backfill(
     db_path: Path = DEFAULT_DB,
     out_path: Path = DEFAULT_OUT,
     search: Callable[[str, str], Sequence[Mapping[str, Any]]] | None = None,
+    overrides_path: Path = DEFAULT_OVERRIDES,
 ) -> list[Venue]:
     """Geocode every distinct venue once and write the committed cache."""
     resolve = search or NominatimSearch()
+    overrides = load_overrides(overrides_path)
     venues = [
-        geocode(name, code, resolve) for name, code in read_venue_names(db_path)
+        geocode(name, code, resolve, overrides)
+        for name, code in read_venue_names(db_path)
     ]
     write_csv(venues, out_path)
     return venues

@@ -1,0 +1,23 @@
+venue_name,search_query,reason
+Camp Nou,Spotify Camp Nou,high: sponsor rename 2022; beats 'Camp Nou Municipal'
+Campos de Sport de El Sardinero,Estadio El Sardinero Santander,medium: OSM uses Estadio
+Estadio Wanda Metropolitano,Estadio Metropolitano Madrid,medium: sponsor dropped from name
+Estadio del Rayo Vallecano,Estadio de Vallecas Madrid,medium: ground's actual name
+Kingston Communications Stadium,MKM Stadium Hull,medium: renamed MKM
+Mercedes-Benz Arena,MHPArena Stuttgart,high: renamed; OSM shows MHPArena
+Oblasny SportKomplex Metalist,Metalist Stadium Kharkiv,medium: OSM uses Metalist
+Olympiako Stadio Spyros Louis,Κεντρικό Ολυμπιακό Στάδιο,high: Greek name; English query also matches a beach volleyball venue
+SR-Bank Arena,Viking Stadion Stavanger,medium: SR-Bank is the sponsor name
+Sardegna Arena,Unipol Domus Cagliari,medium: renamed Unipol Domus
+St. James' Park,St James' Park Newcastle upon Tyne,high: disambiguate from Exeter's ground
+Stade de l'Abbé Deschamps,Stade Abbé-Deschamps Auxerre,medium: OSM hyphenates
+Stade de l'Aube,Stade de l'Aube Troyes,high: disambiguate from Les Rousses
+Stadio Comunale Brianteo,Stadio Brianteo Monza,medium: OSM drops 'Comunale'
+Stadio Comunale Via Del Mare,Stadio Via del Mare Lecce,medium: OSM drops 'Comunale'
+Stadio Pierluigi Penzo,Stadio Pier Luigi Penzo Venezia,medium: OSM splits the forename
+Stadio San Paolo,Stadio Diego Armando Maradona,high: renamed 2020
+The American Express Community Stadium,American Express Stadium Brighton,low: also known as Falmer Stadium
+Türk Telekom Arena,Rams Park Istanbul,"low: renamed repeatedly, current name uncertain"
+Ursapharm-Arena an der Kaiserlinde,Ursapharm-Arena Elversberg,"low: small ground, OSM name uncertain"
+Weserstadion,Weserstadion Bremen,high: disambiguate from Minden namesake
+Ülker Stadyumu Fenerbahçe Şükrü Saracoğlu Spor Kompleksi,Şükrü Saracoğlu Stadyumu Istanbul,medium: OSM uses the short name
