@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Batch ELT pipeline and analytics app for European football data"
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "dlt[duckdb]>=1.30",
     "requests>=2.32",
 ]
 
