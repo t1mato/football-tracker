@@ -10,6 +10,8 @@ from collections.abc import Iterator, Mapping
 from datetime import date
 from typing import Any
 
+import dlt
+
 from football_pipeline.client import FootballDataClient, NotFoundError
 
 COMPETITIONS: tuple[str, ...] = ("PL", "PD", "BL1", "SA", "FL1", "CL")
@@ -400,3 +402,63 @@ def iter_standings(
                     "goals_against": row.get("goalsAgainst"),
                     "goal_difference": row.get("goalDifference"),
                 }
+
+
+@dlt.source(name="football_data")
+def football_data_source(
+    client: FootballDataClient,
+    seasons: tuple[int, ...],
+    run_date: date,
+    codes: tuple[str, ...] = COMPETITIONS,
+) -> Any:
+    """Every resource shares one cache and therefore one client and limiter."""
+    cache = ResponseCache(client)
+
+    @dlt.resource(name="competitions", write_disposition="replace", primary_key="id")
+    def competitions() -> Iterator[dict[str, Any]]:
+        yield from iter_competitions(cache, codes)
+
+    @dlt.resource(name="seasons", write_disposition="merge", primary_key="id")
+    def seasons_resource() -> Iterator[dict[str, Any]]:
+        yield from iter_seasons(cache, seasons, codes)
+
+    @dlt.resource(name="teams", write_disposition="merge", primary_key="id")
+    def teams() -> Iterator[dict[str, Any]]:
+        yield from iter_teams(cache, codes)
+
+    @dlt.resource(name="players", write_disposition="merge", primary_key="id")
+    def players() -> Iterator[dict[str, Any]]:
+        yield from iter_players(cache, codes)
+
+    @dlt.resource(
+        name="squad_observations",
+        write_disposition="merge",
+        primary_key=("team_id", "player_id", "observed_date"),
+    )
+    def squad_observations() -> Iterator[dict[str, Any]]:
+        yield from iter_squad_observations(cache, run_date, codes)
+
+    @dlt.resource(name="matches", write_disposition="merge", primary_key="id")
+    def matches() -> Iterator[dict[str, Any]]:
+        yield from iter_matches(cache, seasons, codes)
+
+    @dlt.resource(
+        name="standings",
+        write_disposition="merge",
+        primary_key=("competition_code", "season_id", "team_id", "snapshot_date"),
+    )
+    def standings() -> Iterator[dict[str, Any]]:
+        yield from iter_standings(cache, run_date, codes)
+
+    @dlt.resource(
+        name="scorers",
+        write_disposition="merge",
+        primary_key=("competition_code", "season_id", "player_id"),
+    )
+    def scorers() -> Iterator[dict[str, Any]]:
+        yield from iter_scorers(cache, seasons, codes)
+
+    return (
+        competitions, seasons_resource, teams, players,
+        squad_observations, matches, standings, scorers,
+    )

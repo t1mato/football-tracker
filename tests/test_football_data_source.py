@@ -11,6 +11,7 @@ import responses
 from football_pipeline.client import FootballDataClient, NotFoundError
 from football_pipeline.football_data_source import (
     ResponseCache,
+    football_data_source,
     iter_competitions,
     iter_matches,
     iter_players,
@@ -538,3 +539,49 @@ def test_seasons_tolerate_a_competition_with_no_standings_yet(
                              seasons=(2026,), codes=("CL",)))
 
     assert rows
+
+
+@responses.activate
+def test_all_resources_route_through_one_client_and_limiter() -> None:
+    """teams, players and squad_observations read the same teams payload.
+
+    Three requests here would mean three caches, and in a real run three
+    independent token buckets against one shared 10 req/min server cap --
+    which is a guaranteed 429. Counting requests is the only way this is
+    observable from outside.
+    """
+    responses.get(f"{BASE_URL}/competitions/PL/teams",
+                  json=teams_payload(ARSENAL), status=200)
+
+    source = football_data_source(client=make_client(), seasons=(2026,),
+                                  run_date=date(2026, 9, 3), codes=("PL",))
+    for name in ("teams", "players", "squad_observations"):
+        list(source.resources[name])
+
+    assert len(responses.calls) == 1
+
+
+def test_the_source_exposes_all_eight_resources() -> None:
+    source = football_data_source(client=make_client(), seasons=(2026,),
+                                  run_date=date(2026, 9, 3))
+
+    assert set(source.resources) == {
+        "competitions", "seasons", "teams", "players",
+        "squad_observations", "matches", "standings", "scorers",
+    }
+
+
+def test_the_source_declares_the_agreed_write_dispositions() -> None:
+    """competitions is the only replace. Any season-scoped replace would
+    delete backfilled seasons on every current-season run.
+    """
+    source = football_data_source(client=make_client(), seasons=(2026,),
+                                  run_date=date(2026, 9, 3))
+    dispositions = {
+        name: r.write_disposition for name, r in source.resources.items()
+    }
+
+    assert dispositions["competitions"] == "replace"
+    assert all(
+        d == "merge" for name, d in dispositions.items() if name != "competitions"
+    )
