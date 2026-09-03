@@ -150,6 +150,25 @@ ARSENAL = {
     "lastUpdated": "2026-09-02T00:20:34Z",
 }
 
+CHELSEA = {
+    "id": 61, "name": "Chelsea FC", "shortName": "Chelsea", "tla": "CHE",
+    "crest": "https://crests.football-data.org/61.png",
+    "address": "Fulham Road London SW6 1HS",
+    "website": "http://www.chelseafc.com", "founded": 1905,
+    "clubColors": "Royal Blue / White", "venue": "Stamford Bridge",
+    "area": {"id": 2072, "name": "England"},
+    "coach": {"id": 12456, "name": "Enzo Maresca", "nationality": "Italy"},
+    "runningCompetitions": [{"id": 2021, "code": "PL", "name": "Premier League"}],
+    "staff": [],
+    "squad": [
+        {"id": 4321, "name": "Robert Sanchez", "position": "Goalkeeper",
+         "dateOfBirth": "1997-11-18", "nationality": "Spain"},
+        {"id": 5432, "name": "Cole Palmer", "position": "Offence",
+         "dateOfBirth": "2002-05-06", "nationality": "England"},
+    ],
+    "lastUpdated": "2026-09-02T00:20:34Z",
+}
+
 
 @responses.activate
 def test_teams_carries_venue_and_coach_but_not_nested_lists() -> None:
@@ -200,14 +219,20 @@ def test_a_404_outside_standings_propagates_as_an_error() -> None:
 def test_players_carry_the_team_id_of_the_squad_that_embedded_them() -> None:
     """The squad payload has no team_id; without injecting it here, dbt would
     have to recover the link from dlt's _dlt_root_id.
+
+    Two teams are used deliberately: a single-team fixture cannot distinguish
+    "the enclosing team's id" from a hardcoded constant equal to that one
+    team's id. Asserting on (team_id, player_id) pairs across two distinct
+    squads is what actually proves team_id follows its own team.
     """
     responses.get(f"{BASE_URL}/competitions/PL/teams",
-                  json=teams_payload(ARSENAL), status=200)
+                  json=teams_payload(ARSENAL, CHELSEA), status=200)
 
     rows = list(iter_players(ResponseCache(make_client()), codes=("PL",)))
 
-    assert {r["team_id"] for r in rows} == {57}
-    assert {r["id"] for r in rows} == {3189, 3319}
+    assert {(r["team_id"], r["id"]) for r in rows} == {
+        (57, 3189), (57, 3319), (61, 4321), (61, 5432),
+    }
     assert rows[0]["position"] == "Goalkeeper"
     assert rows[0]["date_of_birth"] == "1994-10-03"
 
@@ -216,24 +241,29 @@ def test_players_carry_the_team_id_of_the_squad_that_embedded_them() -> None:
 def test_squad_observations_are_stamped_with_the_given_utc_date() -> None:
     """observed_date is injected, never read from the clock in here, so the
     UTC rule is testable rather than a matter of trust.
+
+    Two teams, for the same reason as the players test: proving team_id
+    tracks its own squad rather than a hardcoded single-team value.
     """
     responses.get(f"{BASE_URL}/competitions/PL/teams",
-                  json=teams_payload(ARSENAL), status=200)
+                  json=teams_payload(ARSENAL, CHELSEA), status=200)
 
     rows = list(iter_squad_observations(
         ResponseCache(make_client()), observed_on=date(2026, 9, 3), codes=("PL",)
     ))
 
-    assert len(rows) == 2
+    assert len(rows) == 4
     assert {r["observed_date"] for r in rows} == {"2026-09-03"}
-    assert {(r["team_id"], r["player_id"]) for r in rows} == {(57, 3189), (57, 3319)}
+    assert {(r["team_id"], r["player_id"]) for r in rows} == {
+        (57, 3189), (57, 3319), (61, 4321), (61, 5432),
+    }
 
 
 @responses.activate
 def test_players_and_observations_share_one_teams_request() -> None:
     """Both read the same payload; the run budget assumes one request."""
     responses.get(f"{BASE_URL}/competitions/PL/teams",
-                  json=teams_payload(ARSENAL), status=200)
+                  json=teams_payload(ARSENAL, CHELSEA), status=200)
     cache = ResponseCache(make_client())
 
     list(iter_players(cache, codes=("PL",)))
