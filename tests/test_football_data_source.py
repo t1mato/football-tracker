@@ -1,12 +1,13 @@
 """Tests for the football-data.org dlt source. No test opens a socket."""
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 import responses
 
 from football_pipeline.client import FootballDataClient, NotFoundError
-from football_pipeline.football_data_source import ResponseCache, iter_competitions
+from football_pipeline.football_data_source import ResponseCache, iter_competitions, iter_teams
 from football_pipeline.rate_limiter import RateLimiter
 
 BASE_URL = "https://api.football-data.org/v4"
@@ -117,3 +118,72 @@ def test_competitions_does_not_carry_number_of_available_seasons() -> None:
 
     assert "numberOfAvailableSeasons" not in rows[0]
     assert "number_of_available_seasons" not in rows[0]
+
+
+def teams_payload(*teams: dict[str, Any]) -> dict[str, Any]:
+    return {"count": len(teams), "teams": list(teams)}
+
+
+ARSENAL = {
+    "id": 57, "name": "Arsenal FC", "shortName": "Arsenal", "tla": "ARS",
+    "crest": "https://crests.football-data.org/57.png",
+    "address": "75 Drayton Park London N5 1BU",
+    "website": "http://www.arsenal.com", "founded": 1886,
+    "clubColors": "Red / White", "venue": "Emirates Stadium",
+    "area": {"id": 2072, "name": "England"},
+    "coach": {"id": 11605, "name": "Mikel Arteta", "nationality": "Spain"},
+    "runningCompetitions": [{"id": 2021, "code": "PL", "name": "Premier League"}],
+    "staff": [],
+    "squad": [
+        {"id": 3189, "name": "Kepa Arrizabalaga", "position": "Goalkeeper",
+         "dateOfBirth": "1994-10-03", "nationality": "Spain"},
+        {"id": 3319, "name": "Bukayo Saka", "position": "Offence",
+         "dateOfBirth": "2001-09-05", "nationality": "England"},
+    ],
+    "lastUpdated": "2026-09-02T00:20:34Z",
+}
+
+
+@responses.activate
+def test_teams_carries_venue_and_coach_but_not_nested_lists() -> None:
+    """runningCompetitions and squad would become dlt child tables keyed on
+    _dlt_root_id -- dlt internals leaking into every dbt model downstream.
+    """
+    for code in ("PL", "CL"):
+        responses.get(f"{BASE_URL}/competitions/{code}/teams",
+                      json=teams_payload(ARSENAL), status=200)
+
+    rows = list(iter_teams(ResponseCache(make_client()), codes=("PL", "CL")))
+
+    assert rows[0]["venue_name"] == "Emirates Stadium"
+    assert rows[0]["coach_name"] == "Mikel Arteta"
+    assert "squad" not in rows[0]
+    assert "runningCompetitions" not in rows[0]
+    assert "staff" not in rows[0]
+
+
+@responses.activate
+def test_teams_in_two_competitions_yield_one_row_per_appearance() -> None:
+    """Arsenal is in PL and CL. Merge on id collapses them; the resource does
+    not deduplicate, because dlt's merge is what makes that idempotent.
+    """
+    for code in ("PL", "CL"):
+        responses.get(f"{BASE_URL}/competitions/{code}/teams",
+                      json=teams_payload(ARSENAL), status=200)
+
+    rows = list(iter_teams(ResponseCache(make_client()), codes=("PL", "CL")))
+
+    assert len(rows) == 2
+    assert {r["id"] for r in rows} == {57}
+
+
+@responses.activate
+def test_a_404_outside_standings_propagates_as_an_error() -> None:
+    """Only standings may read a 404 as "no data yet". A 404 on teams means a
+    bad competition code -- a bug that must fail the run loudly rather than
+    silently producing an empty table.
+    """
+    responses.get(f"{BASE_URL}/competitions/XX/teams", json={}, status=404)
+
+    with pytest.raises(NotFoundError):
+        list(iter_teams(ResponseCache(make_client()), codes=("XX",)))

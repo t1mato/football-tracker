@@ -82,3 +82,36 @@ def iter_competitions(
             "area_id": area.get("id"),
             "area_name": area.get("name"),
         }
+
+
+def iter_teams(
+    cache: ResponseCache, codes: tuple[str, ...] = COMPETITIONS
+) -> Iterator[dict[str, Any]]:
+    """One row per team per competition it appears in; merged on id downstream.
+
+    Nested lists (squad, runningCompetitions, staff) are dropped. squad is
+    emitted separately by iter_players and iter_squad_observations with a real
+    team_id foreign key.
+    """
+    for code in codes:
+        payload = cache.get(f"competitions/{code}/teams")
+        for team in payload["teams"]:
+            area = team.get("area") or {}
+            coach = team.get("coach") or {}
+            yield {
+                "id": team["id"],
+                "name": team["name"],
+                "short_name": team.get("shortName"),
+                "tla": team.get("tla"),
+                "crest": team.get("crest"),
+                "address": team.get("address"),
+                "website": team.get("website"),
+                "founded": team.get("founded"),
+                "club_colors": team.get("clubColors"),
+                "venue_name": team.get("venue"),
+                "area_id": area.get("id"),
+                "area_name": area.get("name"),
+                "coach_id": coach.get("id"),
+                "coach_name": coach.get("name"),
+                "last_updated": team.get("lastUpdated"),
+            }
