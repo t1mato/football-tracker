@@ -32,3 +32,6 @@ scratch/
 # Private working docs — design notes, roadmap, agent instructions
 CLAUDE.md
 PLAN.md
+
+# Private working docs — specs live alongside CLAUDE.md and PLAN.md
+docs/
