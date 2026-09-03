@@ -5,7 +5,7 @@ dlt's runtime; the `@dlt.resource` wrappers at the bottom are the only dlt
 surface.
 """
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 from football_pipeline.client import FootballDataClient, NotFoundError
@@ -56,3 +56,29 @@ class ResponseCache:
                 self._not_found[key] = exc
                 raise
         return self._responses[key]
+
+
+def iter_competitions(
+    cache: ResponseCache, codes: tuple[str, ...] = COMPETITIONS
+) -> Iterator[dict[str, Any]]:
+    """One row per tracked competition. Costs one request for all six.
+
+    `numberOfAvailableSeasons` is deliberately dropped: it reports each
+    competition's total recorded history (Premier League claims 128
+    seasons), not what the free tier actually serves -- which stops at
+    roughly four seasons back, with older seasons returning 403. Carrying it
+    forward would invite a backfill loop built on a number that lies.
+    """
+    payload = cache.get("competitions")
+    for comp in payload["competitions"]:
+        if comp["code"] not in codes:
+            continue
+        area = comp.get("area") or {}
+        yield {
+            "id": comp["id"],
+            "code": comp["code"],
+            "name": comp["name"],
+            "type": comp.get("type"),
+            "area_id": area.get("id"),
+            "area_name": area.get("name"),
+        }
