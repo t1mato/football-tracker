@@ -549,18 +549,25 @@ def test_all_resources_route_through_one_client_and_limiter() -> None:
     independent token buckets against one shared 10 req/min server cap --
     which is a guaranteed 429. Counting requests is the only way this is
     observable from outside.
+
+    Also asserts the source's run_date wiring: only the bare iter_* functions
+    are exercised with an injected date elsewhere, so replacing the source's
+    `run_date` wiring into squad_observations with date.today() (local time,
+    not UTC) would break no test without this.
     """
     responses.get(f"{BASE_URL}/competitions/PL/teams",
                   json=teams_payload(ARSENAL), status=200)
 
     source = football_data_source(client=make_client(), seasons=(2026,),
                                   run_date=date(2026, 9, 3), codes=("PL",))
-    for name in ("teams", "players", "squad_observations"):
-        list(source.resources[name])
+    rows = {name: list(source.resources[name]) for name in
+            ("teams", "players", "squad_observations")}
 
     assert len(responses.calls) == 1
+    assert {r["observed_date"] for r in rows["squad_observations"]} == {"2026-09-03"}
 
 
+@responses.activate
 def test_the_source_exposes_all_eight_resources() -> None:
     source = football_data_source(client=make_client(), seasons=(2026,),
                                   run_date=date(2026, 9, 3))
@@ -571,6 +578,49 @@ def test_the_source_exposes_all_eight_resources() -> None:
     }
 
 
+@responses.activate
+def test_all_eight_resources_cost_five_requests_for_one_competition(
+    pl_matches: dict[str, Any],
+) -> None:
+    """The server caps at 10 requests/minute. A recurring run for one
+    competition and one season must fit five: competitions, teams, matches,
+    standings, scorers.
+
+    That budget only holds because every resource shares one ResponseCache
+    keyed on (path, params) -- so, in particular, iter_scorers's `limit`
+    parameter and iter_seasons's hardcoded scorers `limit` must build the
+    identical URL, or the scorers request silently doubles. Every other test
+    exercises one or two resources against its own private cache, so none of
+    them would notice that divergence. This test is the one place all eight
+    iter_* functions run over a single shared cache, the way the real
+    pipeline runs them.
+    """
+    responses.get(f"{BASE_URL}/competitions", json=COMPETITIONS_PAYLOAD, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/teams",
+                  json=teams_payload(ARSENAL, CHELSEA), status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/matches", json=pl_matches, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/standings",
+                  json=STANDINGS_PAYLOAD, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/scorers", json=SCORERS_PAYLOAD, status=200)
+
+    cache = ResponseCache(make_client())
+    codes = ("PL",)
+    seasons = (2026,)
+    observed_on = date(2026, 9, 3)
+
+    list(iter_competitions(cache, codes=codes))
+    list(iter_teams(cache, codes=codes))
+    list(iter_players(cache, codes=codes))
+    list(iter_squad_observations(cache, observed_on=observed_on, codes=codes))
+    list(iter_matches(cache, seasons=seasons, codes=codes))
+    list(iter_standings(cache, snapshot_on=observed_on, codes=codes))
+    list(iter_scorers(cache, seasons=seasons, codes=codes))
+    list(iter_seasons(cache, seasons=seasons, codes=codes))
+
+    assert len(responses.calls) == 5
+
+
+@responses.activate
 def test_the_source_declares_the_agreed_write_dispositions() -> None:
     """competitions is the only replace. Any season-scoped replace would
     delete backfilled seasons on every current-season run.

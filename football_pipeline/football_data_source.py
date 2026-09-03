@@ -167,7 +167,7 @@ def iter_matches(
     for code in codes:
         for season in seasons:
             payload = cache.get(f"competitions/{code}/matches", {"season": season})
-            for match in payload.get("matches", []):
+            for match in payload.get("matches") or []:
                 score = match.get("score") or {}
                 full_time = score.get("fullTime") or {}
                 half_time = score.get("halfTime") or {}
@@ -259,7 +259,7 @@ def iter_scorers(
                 {"season": season, "limit": limit},
             )
             season_id = (payload.get("season") or {}).get("id")
-            for entry in payload.get("scorers", []):
+            for entry in payload.get("scorers") or []:
                 player = entry.get("player") or {}
                 team = entry.get("team") or {}
                 yield {
@@ -345,7 +345,7 @@ def iter_seasons(
 
         for envelope in envelopes:
             candidates = [envelope.get("season") or {}]
-            candidates += [m.get("season") or {} for m in envelope.get("matches", [])]
+            candidates += [m.get("season") or {} for m in envelope.get("matches") or []]
             for candidate in candidates:
                 row = _season_row(candidate, code)
                 if row and row["id"] not in seen:
@@ -380,8 +380,8 @@ def iter_standings(
         except NotFoundError:
             continue
         season_id = (payload.get("season") or {}).get("id")
-        for table in payload.get("standings", []):
-            for row in table.get("table", []):
+        for table in payload.get("standings") or []:
+            for row in table.get("table") or []:
                 team = row.get("team") or {}
                 yield {
                     "competition_code": code,

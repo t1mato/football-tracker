@@ -18,6 +18,13 @@ from football_pipeline.football_data_source import football_data_source
 from football_pipeline.rate_limiter import RateLimiter
 
 SECRETS_PATH = Path(".dlt/secrets.toml")
+
+# Bump this every August when the season rolls over. If it is left behind,
+# nightly runs keep requesting the stale season and fixtures silently stop
+# appearing -- there is no error, just a competition that quietly goes stale.
+# /competitions already returns each competition's currentSeason, so this
+# could be derived from a live call instead of hardcoded, if that indirection
+# is ever worth the extra request.
 CURRENT_SEASON = 2026
 
 
