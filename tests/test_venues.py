@@ -303,3 +303,81 @@ def test_a_team_with_no_venue_is_skipped_rather_than_geocoded_as_empty(
     build_teams_db(db, [("Sabah FK", None, "AZE"), ("Arsenal FC", "Emirates", "ENG")])
 
     assert read_venue_names(db) == [("Emirates", "ENG")]
+
+
+def test_two_candidates_at_the_same_spot_are_one_stadium_not_an_ambiguity() -> None:
+    """OSM often holds a ground twice -- once as a way, once as a relation.
+
+    Aspmyra Stadion and PreZero Arena both came back as two candidates with
+    byte-identical display names. Treating that as ambiguous throws away a
+    perfectly good coordinate.
+    """
+    picked, note = choose(
+        [
+            result(name="Aspmyra stadion", lat="67.2800", lon="14.3960", country="no"),
+            result(name="Aspmyra stadion", lat="67.2815", lon="14.3975", country="no"),
+        ],
+        expected_country="no",
+    )
+
+    assert picked is not None
+    assert note == ""
+
+
+def test_two_stadiums_in_different_cities_stay_ambiguous() -> None:
+    """St James' Park is Newcastle's ground and also Exeter's, 500km apart.
+
+    Collapsing these would have silently sourced Newcastle United's match
+    weather from Devon.
+    """
+    picked, note = choose(
+        [
+            result(name="St. James' Park", lat="54.9756", lon="-1.6216"),
+            result(name="St James' Park", lat="50.7236", lon="-3.5217"),
+        ],
+        expected_country="gb",
+    )
+
+    assert picked is None
+    assert "ambiguous" in note
+
+
+def test_a_no_match_is_retried_once_with_stadium_appended() -> None:
+    """OSM's name is often longer than the API's: 'Elland Road' matches only
+    roads, while 'Elland Road stadium' finds the ground immediately.
+    """
+    search = FakeSearch([], [result(name="Elland Road Stadium")])
+
+    venue = geocode("Elland Road", area_code="ENG", search=search)
+
+    assert [query for query, _ in search.calls] == [
+        "Elland Road",
+        "Elland Road stadium",
+    ]
+    assert venue.needs_review is False
+
+
+def test_an_ambiguous_result_is_not_retried() -> None:
+    """A second request cannot un-ambiguate two real stadiums; it would spend
+    a second of budget to be told the same thing.
+    """
+    search = FakeSearch(
+        [
+            result(name="St. James' Park", lat="54.9756", lon="-1.6216"),
+            result(name="St James' Park", lat="50.7236", lon="-3.5217"),
+        ]
+    )
+
+    venue = geocode("St James' Park", area_code="ENG", search=search)
+
+    assert len(search.calls) == 1
+    assert venue.needs_review is True
+
+
+def test_a_venue_already_ending_in_stadium_is_not_retried() -> None:
+    """Appending 'stadium' to 'Wembley Stadium' just makes a worse query."""
+    search = FakeSearch([], [result()])
+
+    geocode("Wembley Stadium", area_code="ENG", search=search)
+
+    assert len(search.calls) == 1

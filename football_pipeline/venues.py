@@ -11,6 +11,7 @@ import csv
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from math import asin, cos, radians, sin, sqrt
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,14 @@ USER_AGENT = "football-tracker/0.1 (+https://github.com/t1mato/football-tracker)
 
 # Published hard limit, not a suggestion: 1 request per second.
 MIN_INTERVAL_SECONDS = 1.0
+
+EARTH_RADIUS_KM = 6371.0
+
+# Two hits closer together than this are one ground recorded twice -- OSM
+# commonly holds a stadium as both a way and a relation. Grounds that are
+# genuinely different sit far further apart than this (the two St James'
+# Parks are 500km apart), so collapsing at 1km cannot merge real rivals.
+SAME_PLACE_KM = 1.0
 
 # OSM types that plausibly denote a football ground. Everything else -- roads,
 # suburbs and bus stops named after a stadium -- is discarded before
@@ -97,6 +106,18 @@ def geocode(
         return flagged("", f"country not mapped: {area_code!r}")
 
     picked, note = choose(search(venue_name, iso), iso)
+
+    # OSM's name is often longer than the API's -- "Elland Road" matches only
+    # the road, while "Elland Road stadium" finds the ground. Retry only a
+    # no-match: a second request cannot un-ambiguate two real stadiums, and a
+    # country mismatch means the name matched something real elsewhere.
+    if (
+        picked is None
+        and note.startswith("no match")
+        and not venue_name.lower().endswith("stadium")
+    ):
+        picked, note = choose(search(f"{venue_name} stadium", iso), iso)
+
     if picked is None:
         return flagged(iso, note)
 
@@ -140,11 +161,37 @@ def choose(
     if not in_country:
         return None, f"country mismatch: no candidate in {expected_country}"
 
-    if len(in_country) > 1:
-        names = "; ".join(str(r.get("display_name", "?"))[:60] for r in in_country)
-        return None, f"ambiguous: {len(in_country)} candidates -- {names}"
+    distinct = _collapse_same_place(in_country)
+    if len(distinct) > 1:
+        names = "; ".join(str(r.get("display_name", "?"))[:60] for r in distinct)
+        return None, f"ambiguous: {len(distinct)} candidates -- {names}"
 
-    return in_country[0], ""
+    return distinct[0], ""
+
+
+def _distance_km(a: tuple[float, float], b: tuple[float, float]) -> float:
+    """Great-circle distance, used only to tell one ground from two."""
+    lat1, lon1 = a
+    lat2, lon2 = b
+    dlat, dlon = radians(lat2 - lat1), radians(lon2 - lon1)
+    h = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return 2 * EARTH_RADIUS_KM * asin(sqrt(h))
+
+
+def _collapse_same_place(
+    results: Sequence[Mapping[str, Any]],
+) -> list[Mapping[str, Any]]:
+    """Drop candidates that sit on top of one already kept."""
+    kept: list[Mapping[str, Any]] = []
+    for candidate in results:
+        here = _coords(candidate)
+        if here is not None and any(
+            (there := _coords(k)) is not None and _distance_km(here, there) <= SAME_PLACE_KM
+            for k in kept
+        ):
+            continue
+        kept.append(candidate)
+    return kept
 
 
 class NominatimSearch:
