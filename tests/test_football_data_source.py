@@ -1,5 +1,6 @@
 """Tests for the football-data.org dlt source. No test opens a socket."""
 
+import json
 from datetime import date
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,7 @@ from football_pipeline.client import FootballDataClient, NotFoundError
 from football_pipeline.football_data_source import (
     ResponseCache,
     iter_competitions,
+    iter_matches,
     iter_players,
     iter_squad_observations,
     iter_teams,
@@ -271,3 +273,61 @@ def test_players_and_observations_share_one_teams_request() -> None:
     list(iter_teams(cache, codes=("PL",)))
 
     assert len(responses.calls) == 1
+
+
+@pytest.fixture
+def pl_matches() -> dict[str, Any]:
+    """The committed fixture: 12 real matches including 4 defective statuses."""
+    with open(FIXTURES / "pl_matches.json") as f:
+        payload: dict[str, Any] = json.load(f)
+    return payload
+
+
+@responses.activate
+def test_matches_flatten_teams_and_scores(pl_matches: dict[str, Any]) -> None:
+    responses.get(f"{BASE_URL}/competitions/PL/matches",
+                  json=pl_matches, status=200)
+
+    rows = list(iter_matches(ResponseCache(make_client()),
+                             seasons=(2026,), codes=("PL",)))
+
+    assert len(rows) == 12
+    finished = next(r for r in rows if r["status"] == "FINISHED")
+    assert finished["home_team_id"] > 0
+    assert finished["full_time_home"] is not None
+    assert finished["competition_code"] == "PL"
+
+
+@responses.activate
+def test_matches_preserve_defective_status_strings_verbatim(
+    pl_matches: dict[str, Any],
+) -> None:
+    """4 of 380 PL matches return a timestamp where the status enum belongs.
+
+    Raw keeps the raw string. Coercing to UNKNOWN is dbt staging's job, and
+    it cannot be tested there if ingestion has already sanitised it away.
+    """
+    responses.get(f"{BASE_URL}/competitions/PL/matches",
+                  json=pl_matches, status=200)
+
+    rows = list(iter_matches(ResponseCache(make_client()),
+                             seasons=(2026,), codes=("PL",)))
+
+    defective = [r for r in rows if r["id"] in {560585, 560590, 560612, 560628}]
+    assert len(defective) == 4
+    assert all(r["status"].endswith("Z") for r in defective)
+
+
+@responses.activate
+def test_matches_request_one_url_per_competition_season(
+    pl_matches: dict[str, Any],
+) -> None:
+    for _season in (2024, 2025):
+        responses.get(f"{BASE_URL}/competitions/PL/matches",
+                      json=pl_matches, status=200)
+
+    list(iter_matches(ResponseCache(make_client()),
+                      seasons=(2024, 2025), codes=("PL",)))
+
+    assert len(responses.calls) == 2
+    assert {c.request.params["season"] for c in responses.calls} == {"2024", "2025"}

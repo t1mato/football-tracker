@@ -144,6 +144,56 @@ def iter_players(
                 }
 
 
+def iter_matches(
+    cache: ResponseCache,
+    seasons: tuple[int, ...],
+    codes: tuple[str, ...] = COMPETITIONS,
+) -> Iterator[dict[str, Any]]:
+    """One row per match, merged on id -- score and status change until FINISHED.
+
+    No incremental cursor. Matches carry lastUpdated, but the API has no
+    updatedSince parameter, so filtering on it would save warehouse writes and
+    zero requests, while risking silently never reloading a correction that
+    did not bump the field.
+
+    `status` is passed through verbatim, defects included: a handful of
+    matches return a timestamp string where the status enum belongs.
+    Coercing that here would make it untestable in dbt staging, which is
+    where cleaning belongs.
+    """
+    for code in codes:
+        for season in seasons:
+            payload = cache.get(f"competitions/{code}/matches", {"season": season})
+            for match in payload.get("matches", []):
+                score = match.get("score") or {}
+                full_time = score.get("fullTime") or {}
+                half_time = score.get("halfTime") or {}
+                home = match.get("homeTeam") or {}
+                away = match.get("awayTeam") or {}
+                season_obj = match.get("season") or {}
+                yield {
+                    "id": match["id"],
+                    "competition_code": code,
+                    "season_id": season_obj.get("id"),
+                    "utc_date": match.get("utcDate"),
+                    "status": match.get("status"),
+                    "matchday": match.get("matchday"),
+                    "stage": match.get("stage"),
+                    "group": match.get("group"),
+                    "last_updated": match.get("lastUpdated"),
+                    "home_team_id": home.get("id"),
+                    "home_team_name": home.get("name"),
+                    "away_team_id": away.get("id"),
+                    "away_team_name": away.get("name"),
+                    "winner": score.get("winner"),
+                    "duration": score.get("duration"),
+                    "full_time_home": full_time.get("home"),
+                    "full_time_away": full_time.get("away"),
+                    "half_time_home": half_time.get("home"),
+                    "half_time_away": half_time.get("away"),
+                }
+
+
 def iter_squad_observations(
     cache: ResponseCache,
     observed_on: date,
