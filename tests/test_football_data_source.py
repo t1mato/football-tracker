@@ -447,17 +447,55 @@ def test_scorers_key_on_competition_season_and_player() -> None:
     assert rows[0]["team_id"] == 66
 
 
+# Every season id in COMPETITIONS_PAYLOAD, SCORERS_PAYLOAD, STANDINGS_PAYLOAD
+# and pl_matches.json happens to be 2502 -- the current season. A payload with
+# a *different* embedded per-match season id is needed to prove seasons are
+# actually harvested from individual matches, not just the /competitions
+# envelope (which alone would satisfy a much weaker assertion).
+HISTORICAL_PL_MATCHES = {
+    "filters": {"season": "2024"},
+    "resultSet": {"count": 1, "first": "2024-08-16", "last": "2024-08-16", "played": 1},
+    "competition": {
+        "id": 2021, "name": "Premier League", "code": "PL", "type": "LEAGUE",
+        "emblem": "https://crests.football-data.org/PL.png",
+    },
+    "matches": [
+        {
+            "id": 460001,
+            "utcDate": "2024-08-16T19:00:00Z",
+            "status": "FINISHED",
+            "matchday": 1,
+            "stage": "REGULAR_SEASON",
+            "group": None,
+            "lastUpdated": "2024-08-17T00:20:34Z",
+            "season": {
+                "id": 2401, "startDate": "2024-08-16", "endDate": "2025-05-25",
+                "currentMatchday": 38, "winner": None,
+            },
+            "homeTeam": {"id": 57, "name": "Arsenal FC"},
+            "awayTeam": {"id": 61, "name": "Chelsea FC"},
+            "score": {
+                "winner": "HOME_TEAM", "duration": "REGULAR",
+                "fullTime": {"home": 2, "away": 0},
+                "halfTime": {"home": 1, "away": 0},
+            },
+        },
+    ],
+}
+
+
 @responses.activate
-def test_seasons_include_historical_ones_from_the_matches_payload(
-    pl_matches: dict[str, Any],
-) -> None:
+def test_seasons_include_historical_ones_from_the_matches_payload() -> None:
     """Deriving seasons from /competitions alone yields only the current one.
 
     Every backfilled match would then join to a missing season and the Season
-    Archive page would have nothing to browse.
+    Archive page would have nothing to browse. HISTORICAL_PL_MATCHES carries a
+    season id (2401) that appears nowhere except the embedded per-match season
+    object, so this fails unless that object is actually harvested.
     """
     responses.get(f"{BASE_URL}/competitions", json=COMPETITIONS_PAYLOAD, status=200)
-    responses.get(f"{BASE_URL}/competitions/PL/matches", json=pl_matches, status=200)
+    responses.get(f"{BASE_URL}/competitions/PL/matches",
+                  json=HISTORICAL_PL_MATCHES, status=200)
     responses.get(f"{BASE_URL}/competitions/PL/scorers", json=SCORERS_PAYLOAD, status=200)
     responses.get(f"{BASE_URL}/competitions/PL/standings",
                   json=STANDINGS_PAYLOAD, status=200)
@@ -467,6 +505,7 @@ def test_seasons_include_historical_ones_from_the_matches_payload(
 
     ids = {r["id"] for r in rows}
     assert 2502 in ids
+    assert 2401 in ids
     assert all(r["start_date"] for r in rows)
 
 
