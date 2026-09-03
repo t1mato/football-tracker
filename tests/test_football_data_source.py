@@ -15,6 +15,7 @@ from football_pipeline.football_data_source import (
     iter_matches,
     iter_players,
     iter_squad_observations,
+    iter_standings,
     iter_teams,
 )
 from football_pipeline.rate_limiter import RateLimiter
@@ -331,3 +332,67 @@ def test_matches_request_one_url_per_competition_season(
 
     assert len(responses.calls) == 2
     assert {c.request.params["season"] for c in responses.calls} == {"2024", "2025"}
+
+
+STANDINGS_PAYLOAD = {
+    "filters": {"season": "2026"},
+    "competition": {"id": 2021, "code": "PL", "name": "Premier League"},
+    "season": {"id": 2502, "startDate": "2026-08-21", "endDate": "2027-05-30",
+               "currentMatchday": 3, "winner": None},
+    "standings": [{
+        "stage": "REGULAR_SEASON", "type": "TOTAL", "group": None,
+        "table": [{
+            "position": 1, "team": {"id": 57, "name": "Arsenal FC"},
+            "playedGames": 3, "form": "W,W,W", "won": 3, "draw": 0, "lost": 0,
+            "points": 9, "goalsFor": 7, "goalsAgainst": 1, "goalDifference": 6,
+        }],
+    }],
+}
+
+
+@responses.activate
+def test_standings_yield_nothing_when_the_league_phase_has_not_started() -> None:
+    """CL standings 404 every summer. That means "no data yet", not failure --
+    if this raised, the whole nightly run would die from June to September.
+    """
+    responses.get(f"{BASE_URL}/competitions/CL/standings", json={}, status=404)
+
+    rows = list(iter_standings(ResponseCache(make_client()),
+                               snapshot_on=date(2026, 9, 3), codes=("CL",)))
+
+    assert rows == []
+
+
+@responses.activate
+def test_standings_stamp_every_row_with_the_snapshot_date() -> None:
+    """football-data.org exposes only the current table, so this history exists
+    only because we snapshot it ourselves.
+    """
+    responses.get(f"{BASE_URL}/competitions/PL/standings",
+                  json=STANDINGS_PAYLOAD, status=200)
+
+    rows = list(iter_standings(ResponseCache(make_client()),
+                               snapshot_on=date(2026, 9, 3), codes=("PL",)))
+
+    assert len(rows) == 1
+    assert rows[0]["snapshot_date"] == "2026-09-03"
+    assert rows[0]["team_id"] == 57
+    assert rows[0]["position"] == 1
+    assert rows[0]["points"] == 9
+    assert rows[0]["season_id"] == 2502
+    assert rows[0]["competition_code"] == "PL"
+
+
+@responses.activate
+def test_standings_rerun_on_the_same_day_produces_identical_rows() -> None:
+    """The merge key is (competition, season, team, snapshot_date). Identical
+    rows are what makes a retried run idempotent rather than duplicating.
+    """
+    responses.get(f"{BASE_URL}/competitions/PL/standings",
+                  json=STANDINGS_PAYLOAD, status=200)
+    cache = ResponseCache(make_client())
+
+    first = list(iter_standings(cache, snapshot_on=date(2026, 9, 3), codes=("PL",)))
+    second = list(iter_standings(cache, snapshot_on=date(2026, 9, 3), codes=("PL",)))
+
+    assert first == second

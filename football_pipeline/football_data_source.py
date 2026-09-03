@@ -229,3 +229,54 @@ def iter_squad_observations(
                     "observed_date": stamp,
                     "position": player.get("position"),
                 }
+
+
+def iter_standings(
+    cache: ResponseCache,
+    snapshot_on: date,
+    codes: tuple[str, ...] = COMPETITIONS,
+) -> Iterator[dict[str, Any]]:
+    """One row per team per competition per UTC day.
+
+    This is the only resource that swallows a 404. /competitions/CL/standings
+    404s all summer because the league phase has not started, and that means
+    "no data yet". Everywhere else a 404 is a malformed path or a bad
+    competition code and must surface.
+
+    `snapshot_on` is injected for the same reason as `observed_on` in
+    iter_squad_observations: this project is UTC end-to-end, the caller owns
+    that decision, and injecting it makes the date assertable rather than a
+    matter of trust. football-data.org exposes only the CURRENT table -- this
+    snapshot history exists only because we record it ourselves, merged on
+    (competition_code, season_id, team_id, snapshot_date) so a rerun on the
+    same day produces identical rows instead of duplicates.
+    """
+    stamp = snapshot_on.isoformat()
+    for code in codes:
+        try:
+            payload = cache.get(f"competitions/{code}/standings")
+        except NotFoundError:
+            continue
+        season_id = (payload.get("season") or {}).get("id")
+        for table in payload.get("standings", []):
+            for row in table.get("table", []):
+                team = row.get("team") or {}
+                yield {
+                    "competition_code": code,
+                    "season_id": season_id,
+                    "team_id": team.get("id"),
+                    "snapshot_date": stamp,
+                    "stage": table.get("stage"),
+                    "type": table.get("type"),
+                    "group": table.get("group"),
+                    "position": row.get("position"),
+                    "played_games": row.get("playedGames"),
+                    "form": row.get("form"),
+                    "won": row.get("won"),
+                    "draw": row.get("draw"),
+                    "lost": row.get("lost"),
+                    "points": row.get("points"),
+                    "goals_for": row.get("goalsFor"),
+                    "goals_against": row.get("goalsAgainst"),
+                    "goal_difference": row.get("goalDifference"),
+                }
