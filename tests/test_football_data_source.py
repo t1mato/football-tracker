@@ -635,3 +635,20 @@ def test_the_source_declares_the_agreed_write_dispositions() -> None:
     assert all(
         d == "merge" for name, d in dispositions.items() if name != "competitions"
     )
+
+
+@responses.activate
+def test_standings_pins_form_as_text_so_an_all_null_load_keeps_the_column() -> None:
+    """`form` is null for every team early in a season (confirmed against the
+    live API and a 2026-09-02 matchday-2 probe). With no non-null value to
+    infer a type from, dlt drops a column entirely rather than materializing
+    it as all-NULL, so the destination table's shape would depend on how far
+    into the season the first load happened. The standings resource must
+    declare an explicit text type hint for `form` to prevent that.
+    """
+    source = football_data_source(client=make_client(), seasons=(2026,),
+                                  run_date=date(2026, 9, 3))
+
+    columns = source.resources["standings"].columns
+
+    assert columns["form"]["data_type"] == "text"

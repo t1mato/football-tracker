@@ -446,6 +446,14 @@ def football_data_source(
         name="standings",
         write_disposition="merge",
         primary_key=("competition_code", "season_id", "team_id", "snapshot_date"),
+        # `form` is null for every team early in a season (confirmed against
+        # the live API and a 2026-09-02 matchday-2 probe). With no non-null
+        # value to infer a type from, dlt drops the column entirely rather
+        # than materializing it as all-NULL -- so whether the destination
+        # table even has a `form` column would depend on how far into the
+        # season the first load happened. Pin the type explicitly so the
+        # column always exists.
+        columns={"form": {"data_type": "text"}},
     )
     def standings() -> Iterator[dict[str, Any]]:
         yield from iter_standings(cache, run_date, codes)
