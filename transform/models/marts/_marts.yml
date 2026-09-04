@@ -85,3 +85,72 @@ models:
               arguments:
                 to: ref('dim_date')
                 field: date_day
+
+  - name: fct_team_matches
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [match_id, team_id]
+    columns:
+      - name: match_id
+        tests: [not_null]
+      - name: team_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: opponent_team_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: result
+        # No `not_null` here -- null is the correct value for an unfinished
+        # match. No `where` filter needed either: accepted_values compiles to
+        # `value_field not in (...)`, and NULL NOT IN (...) evaluates to NULL
+        # under SQL's three-valued logic, which the test's WHERE clause
+        # already excludes (verified against the installed macro source).
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['W', 'D', 'L']
+
+unit_tests:
+  - name: finished_match_produces_correct_result_and_score_swap
+    description: >
+      A 2-1 home win must produce a W row for the home team and an L row
+      for the away team, with goals_for/goals_against swapped per side --
+      not just copied.
+    model: fct_team_matches
+    given:
+      - input: ref('fct_matches')
+        rows:
+          - {match_id: 1, home_team_id: 10, away_team_id: 20, status: 'FINISHED',
+             full_time_home: 2, full_time_away: 1}
+    expect:
+      rows:
+        - {match_id: 1, team_id: 10, opponent_team_id: 20, is_home: true,
+           goals_for: 2, goals_against: 1, result: 'W'}
+        - {match_id: 1, team_id: 20, opponent_team_id: 10, is_home: false,
+           goals_for: 1, goals_against: 2, result: 'L'}
+
+  - name: unfinished_match_has_no_result
+    description: >
+      A TIMED match has no scores yet. result must be null on both derived
+      rows rather than a misleading W/D/L computed by comparing two nulls.
+    model: fct_team_matches
+    given:
+      - input: ref('fct_matches')
+        rows:
+          - {match_id: 2, home_team_id: 10, away_team_id: 20, status: 'TIMED',
+             full_time_home: null, full_time_away: null}
+    expect:
+      rows:
+        - {match_id: 2, team_id: 10, opponent_team_id: 20, is_home: true,
+           goals_for: null, goals_against: null, result: null}
+        - {match_id: 2, team_id: 20, opponent_team_id: 10, is_home: false,
+           goals_for: null, goals_against: null, result: null}
