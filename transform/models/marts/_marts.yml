@@ -38,3 +38,50 @@ models:
     columns:
       - name: date_day
         tests: [unique, not_null]
+
+  - name: fct_matches
+    columns:
+      - name: match_id
+        tests: [unique, not_null]
+      - name: home_team_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: away_team_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: venue_key
+        # No not_null here -- legitimately null for the two unresolved
+        # venues and any derived team with no known venue_name. relationships
+        # already skips null values (verified against dbt's builtin macro
+        # source), so this only checks the venue_keys that are populated.
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_venues')
+                field: venue_key
+      - name: season_id
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_seasons')
+                field: season_id
+      - name: competition_code
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
+      - name: kickoff_date_utc
+        tests:
+          - relationships:
+              arguments:
+                to: ref('dim_date')
+                field: date_day
