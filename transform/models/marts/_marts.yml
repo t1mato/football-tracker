@@ -33,3 +33,8 @@ models:
         tests: [unique, not_null]
       - name: is_derived
         tests: [not_null]
+
+  - name: dim_date
+    columns:
+      - name: date_day
+        tests: [unique, not_null]
