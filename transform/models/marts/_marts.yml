@@ -26,3 +26,10 @@ models:
         tests: [unique, not_null]
       - name: venue_name
         tests: [unique, not_null]
+
+  - name: dim_teams
+    columns:
+      - name: team_id
+        tests: [unique, not_null]
+      - name: is_derived
+        tests: [not_null]
