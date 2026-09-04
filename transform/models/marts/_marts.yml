@@ -19,3 +19,10 @@ models:
         tests: [unique, not_null]
       - name: team_id
         tests: [not_null]
+
+  - name: dim_venues
+    columns:
+      - name: venue_key
+        tests: [unique, not_null]
+      - name: venue_name
+        tests: [unique, not_null]
