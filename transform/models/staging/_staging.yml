@@ -21,6 +21,56 @@ models:
       - name: kickoff_time_confirmed
         tests: [not_null]
 
+  - name: stg_competitions
+    columns:
+      - name: competition_id
+        tests: [unique, not_null]
+      - name: competition_code
+        tests: [unique, not_null]
+
+  - name: stg_seasons
+    columns:
+      - name: season_id
+        tests: [unique, not_null]
+
+  - name: stg_teams
+    columns:
+      - name: team_id
+        tests: [unique, not_null]
+      - name: area_code
+        tests: [not_null]
+
+  - name: stg_players
+    columns:
+      - name: player_id
+        tests: [unique, not_null]
+      - name: team_id
+        tests: [not_null]
+
+  - name: stg_squad_observations
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [team_id, player_id, observed_date]
+
+  - name: stg_standings
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [competition_code, season_id, team_id, snapshot_date]
+
+  - name: stg_scorers
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [competition_code, season_id, player_id]
+
+  - name: stg_venues
+    columns:
+      - name: venue_name
+        tests: [unique, not_null]
+
+
 unit_tests:
   - name: coerces_a_defective_status_and_keeps_the_original
     description: >
