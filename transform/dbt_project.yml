@@ -32,7 +32,21 @@ vars:
     - CANCELLED
     - AWARDED
 
+  # dbt_utils.date_spine's end_date is EXCLUSIVE (verified 2026-09-04: a
+  # spine from 2020-01-01 to 2020-01-06 returns 5 rows, through 01-05, not
+  # 01-06). end is therefore one day past the last day the spine should
+  # actually contain.
+  date_spine_start: '2020-01-01'
+  date_spine_end_exclusive: '2031-01-01'
+
 models:
   football_analytics:
     staging:
       +materialized: view
+    marts:
+      # All ten models in this phase are full-rebuild tables. dlt already
+      # solved incremental correctness at the raw layer (matches merges on
+      # id, standings merges on a key that includes snapshot_date so history
+      # accumulates), so recomputing from staging on every run is always
+      # correct and there is no dbt-layer merge/unique_key to reason about.
+      +materialized: table

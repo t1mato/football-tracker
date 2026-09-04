@@ -1,0 +1,21 @@
+version: 2
+
+models:
+  - name: dim_competitions
+    columns:
+      - name: competition_id
+        tests: [unique, not_null]
+      - name: competition_code
+        tests: [unique, not_null]
+
+  - name: dim_seasons
+    columns:
+      - name: season_id
+        tests: [unique, not_null]
+
+  - name: dim_players
+    columns:
+      - name: player_id
+        tests: [unique, not_null]
+      - name: team_id
+        tests: [not_null]
