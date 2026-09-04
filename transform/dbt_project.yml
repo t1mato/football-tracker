@@ -1,0 +1,38 @@
+name: football_analytics
+version: '1.0.0'
+config-version: 2
+
+# A distinctive profile name is a safety mechanism. `dbt --project-dir
+# transform` run from the repo root finds the project via the flag but
+# resolves profiles from ~/.dbt/ -- with a generic name it could silently
+# connect to another warehouse with an unpinned session. With this name it
+# fails: "Could not find profile named 'football_tracker'".
+profile: football_tracker
+
+model-paths: ["models"]
+seed-paths: ["seeds"]
+macro-paths: ["macros"]
+test-paths: ["tests"]
+target-path: "target"
+clean-targets: ["target", "dbt_packages"]
+
+vars:
+  # The only copy of this list. Referenced by stg_matches' CASE and by the
+  # accepted_values test in _sources.yml (schema files are Jinja-rendered).
+  # Two copies would drift, and the day they drift you get a contradictory
+  # pair of test results instead of one answer.
+  match_statuses:
+    - SCHEDULED
+    - TIMED
+    - IN_PLAY
+    - PAUSED
+    - FINISHED
+    - POSTPONED
+    - SUSPENDED
+    - CANCELLED
+    - AWARDED
+
+models:
+  football_analytics:
+    staging:
+      +materialized: view

@@ -1,0 +1,19 @@
+football_tracker:
+  target: dev
+  outputs:
+    dev:
+      type: duckdb
+      path: ../football_data.duckdb
+      threads: 4
+      # Load-bearing, not cosmetic. Verified: without this block dbt-duckdb
+      # inherits the machine timezone (America/Los_Angeles here) and
+      # cast(timestamptz as date) returns 2023-08-11 for a 2023-08-12
+      # instant. Verified to apply on every connection in the pool.
+      settings:
+        TimeZone: 'UTC'
+    ci:
+      type: duckdb
+      path: ci.duckdb
+      threads: 4
+      settings:
+        TimeZone: 'UTC'
