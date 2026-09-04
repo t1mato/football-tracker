@@ -26,6 +26,9 @@ with players as (
 -- uniqueness. row_number, ordered by season_id desc, keeps one row per
 -- player -- their most recent team -- mirroring how stg_players itself is
 -- already a single current-snapshot dimension, not a history.
+--
+-- Twin of dim_teams.sql's observed_teams/derived_teams CTEs -- same shape,
+-- not extracted to a shared macro (see the comment there for why).
 missing_players as (
     select
         s.player_id,
@@ -45,9 +48,12 @@ derived_players as (
         player_id,
         team_id,
         player_name,
-        cast(null as varchar) as position,
+        -- varchar is a DuckDB spelling BigQuery doesn't have; dbt.type_string()
+        -- is portable. date needs no such treatment -- it's an identical
+        -- native type on both warehouses.
+        cast(null as {{ dbt.type_string() }}) as position,
         cast(null as date) as date_of_birth,
-        cast(null as varchar) as nationality,
+        cast(null as {{ dbt.type_string() }}) as nationality,
         true as is_derived
     from missing_players
     where rn = 1

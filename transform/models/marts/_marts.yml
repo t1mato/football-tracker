@@ -219,3 +219,46 @@ unit_tests:
            goals_for: null, goals_against: null, result: null}
         - {match_id: 2, team_id: 20, opponent_team_id: 10, is_home: false,
            goals_for: null, goals_against: null, result: null}
+
+  - name: finished_match_with_null_scores_has_no_result
+    description: >
+      status = FINISHED alone does not guarantee a scoreline. Under SQL's
+      three-valued logic, comparing a null goals_for/against falls through
+      any CASE that only checks status <> 'FINISHED', fabricating a 'D' for
+      a match with no recorded score. Verified 0 such rows exist in the real
+      warehouse today, but the fix must not depend on that staying true.
+    model: fct_team_matches
+    given:
+      - input: ref('fct_matches')
+        rows:
+          - {match_id: 3, home_team_id: 10, away_team_id: 20, status: 'FINISHED',
+             full_time_home: null, full_time_away: null}
+    expect:
+      rows:
+        - {match_id: 3, team_id: 10, opponent_team_id: 20, is_home: true,
+           goals_for: null, goals_against: null, result: null}
+        - {match_id: 3, team_id: 20, opponent_team_id: 10, is_home: false,
+           goals_for: null, goals_against: null, result: null}
+
+  - name: awarded_match_uses_winner_not_goals
+    description: >
+      AWARDED matches (forfeited/technically-decided) have a real outcome
+      but no goals -- verified 3 such matches exist in the live warehouse
+      today, all previously getting result = null. The API's winner field
+      (HOME_TEAM/AWAY_TEAM/DRAW) carries the real outcome; result must be
+      reframed from each team's own is_home perspective, the same way goals
+      already are.
+    model: fct_team_matches
+    given:
+      - input: ref('fct_matches')
+        rows:
+          - {match_id: 4, home_team_id: 10, away_team_id: 20, status: 'AWARDED',
+             winner: 'HOME_TEAM', full_time_home: null, full_time_away: null}
+          - {match_id: 5, home_team_id: 10, away_team_id: 20, status: 'AWARDED',
+             winner: 'DRAW', full_time_home: null, full_time_away: null}
+    expect:
+      rows:
+        - {match_id: 4, team_id: 10, opponent_team_id: 20, is_home: true,  result: 'W'}
+        - {match_id: 4, team_id: 20, opponent_team_id: 10, is_home: false, result: 'L'}
+        - {match_id: 5, team_id: 10, opponent_team_id: 20, is_home: true,  result: 'D'}
+        - {match_id: 5, team_id: 20, opponent_team_id: 10, is_home: false, result: 'D'}
