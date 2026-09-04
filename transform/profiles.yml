@@ -17,3 +17,18 @@ football_tracker:
       threads: 4
       settings:
         TimeZone: 'UTC'
+    # Deliberately NOT UTC. `make tz-check` runs the unit tests against this
+    # target: any model deriving a date or hour from a timestamptz instead of
+    # the naive UTC form returns a different answer here than under `make
+    # test`, and fails. Verified: with to_utc_naive stubbed out, a 00:30Z
+    # kickoff comes back as 2023-08-11 hour 17 instead of 2023-08-12 hour 0.
+    #
+    # It shares ci.duckdb because unit tests introspect the source relation
+    # for column types and so need raw.* to exist -- create_empty_sources
+    # already builds them there. It must never point at football_data.duckdb.
+    tz_probe:
+      type: duckdb
+      path: ci.duckdb
+      threads: 1
+      settings:
+        TimeZone: 'America/Los_Angeles'

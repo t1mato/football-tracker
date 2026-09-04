@@ -1,0 +1,78 @@
+version: 2
+
+models:
+  - name: stg_matches
+    description: >
+      One row per match. Status coerced to the accepted enum with the
+      original preserved in status_raw. Date and hour derived from a naive
+      UTC timestamp so they do not depend on the session timezone.
+    columns:
+      - name: match_id
+        tests: [unique, not_null]
+      - name: status
+        tests:
+          - accepted_values:
+              arguments:
+                values: "{{ var('match_statuses') + ['UNKNOWN'] }}"
+      - name: status_raw
+        tests: [not_null]
+      - name: kickoff_date_utc
+        tests: [not_null]
+      - name: kickoff_time_confirmed
+        tests: [not_null]
+
+unit_tests:
+  - name: coerces_a_defective_status_and_keeps_the_original
+    description: >
+      4 of 380 matches once returned a timestamp where the status enum
+      belongs. The defect set moves as reschedules settle, so this pins the
+      behaviour rather than the specific rows.
+    model: stg_matches
+    given:
+      - input: source('raw', 'matches')
+        rows:
+          - {id: 1, status: 'FINISHED',             utc_date: '2024-05-01 14:00:00+00'}
+          - {id: 2, status: '2026-09-05 13:15:00Z', utc_date: '2026-09-05 14:15:00+00'}
+    expect:
+      rows:
+        - {match_id: 1, status: 'FINISHED', status_raw: 'FINISHED'}
+        - {match_id: 2, status: 'UNKNOWN',  status_raw: '2026-09-05 13:15:00Z'}
+
+  - name: awarded_is_a_valid_status_not_a_defect
+    model: stg_matches
+    given:
+      - input: source('raw', 'matches')
+        rows:
+          - {id: 1, status: 'AWARDED', utc_date: '2024-05-01 14:00:00+00'}
+    expect:
+      rows:
+        - {match_id: 1, status: 'AWARDED', status_raw: 'AWARDED'}
+
+  - name: an_unconfirmed_kickoff_has_no_hour
+    description: >
+      Every SCHEDULED match sits at exactly 00:00:00Z -- the source saying
+      the time is not confirmed. Emitting hour 0 would give a 19:00 fixture
+      midnight weather, silently.
+    model: stg_matches
+    given:
+      - input: source('raw', 'matches')
+        rows:
+          - {id: 1, status: 'SCHEDULED', utc_date: '2026-10-01 00:00:00+00'}
+          - {id: 2, status: 'TIMED',     utc_date: '2026-10-01 19:00:00+00'}
+    expect:
+      rows:
+        - {match_id: 1, kickoff_hour_utc: null, kickoff_time_confirmed: false}
+        - {match_id: 2, kickoff_hour_utc: 19,   kickoff_time_confirmed: true}
+
+  - name: the_utc_date_does_not_follow_the_session_timezone
+    description: >
+      A 00:30Z instant is the previous day under any US session. Deriving
+      the date from the naive UTC form is what keeps it on 2023-08-12.
+    model: stg_matches
+    given:
+      - input: source('raw', 'matches')
+        rows:
+          - {id: 1, status: 'FINISHED', utc_date: '2023-08-12 00:30:00+00'}
+    expect:
+      rows:
+        - {match_id: 1, kickoff_date_utc: '2023-08-12', kickoff_hour_utc: 0}
