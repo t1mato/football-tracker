@@ -1,0 +1,217 @@
+version: 2
+
+sources:
+  - name: raw
+    schema: raw
+    tables:
+      - name: competitions
+        columns:
+          - name: id
+            data_type: bigint
+            tests: [unique, not_null]
+          - name: code
+            data_type: varchar
+          - name: name
+            data_type: varchar
+          - name: type
+            data_type: varchar
+          - name: area_id
+            data_type: bigint
+          - name: area_name
+            data_type: varchar
+      - name: matches
+        columns:
+          - name: id
+            data_type: bigint
+            tests: [unique, not_null]
+          - name: competition_code
+            data_type: varchar
+            tests: [not_null]
+          - name: season_id
+            data_type: bigint
+          - name: utc_date
+            data_type: timestamp with time zone
+          - name: status
+            data_type: varchar
+            tests:
+              # Deliberately on the SOURCE, not the coerced column. On the
+              # coerced column this is unfailable by construction -- the CASE
+              # guarantees membership -- so it would test our SQL, not the data.
+              - accepted_values:
+                  # dbt 1.12 requires generic-test arguments to be nested
+                  # under `arguments`; a top-level `values` still works but
+                  # raises MissingArgumentsPropertyInGenericTestDeprecation,
+                  # and CI surfaces warnings deliberately -- a deprecation we
+                  # authored would be noise in the channel we rely on.
+                  arguments:
+                    values: "{{ var('match_statuses') }}"
+                  config:
+                    severity: error
+                    # 2 defective rows in 7,655 is a transient reschedule
+                    # glitch and must not redden a build. Twenty-plus is a
+                    # structural break and must.
+                    warn_if: ">0"
+                    error_if: ">20"
+                    # So the failing rows survive the log scrollback.
+                    store_failures: true
+          - name: matchday
+            data_type: bigint
+          - name: stage
+            data_type: varchar
+          - name: last_updated
+            data_type: timestamp with time zone
+          - name: home_team_id
+            data_type: bigint
+          - name: home_team_name
+            data_type: varchar
+          - name: away_team_id
+            data_type: bigint
+          - name: away_team_name
+            data_type: varchar
+          - name: winner
+            data_type: varchar
+          - name: duration
+            data_type: varchar
+          - name: full_time_home
+            data_type: bigint
+          - name: full_time_away
+            data_type: bigint
+          - name: half_time_home
+            data_type: bigint
+          - name: half_time_away
+            data_type: bigint
+          - name: group
+            data_type: varchar
+      - name: players
+        columns:
+          - name: id
+            data_type: bigint
+            tests: [unique, not_null]
+          - name: team_id
+            data_type: bigint
+          - name: name
+            data_type: varchar
+          - name: position
+            data_type: varchar
+          - name: date_of_birth
+            data_type: varchar
+          - name: nationality
+            data_type: varchar
+      - name: scorers
+        columns:
+          - name: competition_code
+            data_type: varchar
+          - name: season_id
+            data_type: bigint
+          - name: player_id
+            data_type: bigint
+          - name: player_name
+            data_type: varchar
+          - name: team_id
+            data_type: bigint
+          - name: team_name
+            data_type: varchar
+          - name: played_matches
+            data_type: bigint
+          - name: goals
+            data_type: bigint
+          - name: assists
+            data_type: bigint
+          - name: penalties
+            data_type: bigint
+      - name: seasons
+        columns:
+          - name: id
+            data_type: bigint
+            tests: [unique, not_null]
+          - name: competition_code
+            data_type: varchar
+          - name: start_date
+            data_type: varchar
+          - name: end_date
+            data_type: varchar
+          - name: current_matchday
+            data_type: bigint
+          - name: winner_team_id
+            data_type: bigint
+      - name: squad_observations
+        columns:
+          - name: team_id
+            data_type: bigint
+          - name: player_id
+            data_type: bigint
+          - name: observed_date
+            data_type: varchar
+          - name: position
+            data_type: varchar
+      - name: standings
+        columns:
+          - name: competition_code
+            data_type: varchar
+          - name: season_id
+            data_type: bigint
+          - name: team_id
+            data_type: bigint
+          - name: snapshot_date
+            data_type: varchar
+          - name: stage
+            data_type: varchar
+          - name: type
+            data_type: varchar
+          - name: group
+            data_type: varchar
+          - name: position
+            data_type: bigint
+          - name: played_games
+            data_type: bigint
+          - name: won
+            data_type: bigint
+          - name: draw
+            data_type: bigint
+          - name: lost
+            data_type: bigint
+          - name: points
+            data_type: bigint
+          - name: goals_for
+            data_type: bigint
+          - name: goals_against
+            data_type: bigint
+          - name: goal_difference
+            data_type: bigint
+          - name: form
+            data_type: varchar
+      - name: teams
+        columns:
+          - name: id
+            data_type: bigint
+            tests: [unique, not_null]
+          - name: name
+            data_type: varchar
+          - name: short_name
+            data_type: varchar
+          - name: tla
+            data_type: varchar
+          - name: crest
+            data_type: varchar
+          - name: address
+            data_type: varchar
+          - name: website
+            data_type: varchar
+          - name: founded
+            data_type: bigint
+          - name: club_colors
+            data_type: varchar
+          - name: venue_name
+            data_type: varchar
+          - name: area_id
+            data_type: bigint
+          - name: area_name
+            data_type: varchar
+          - name: coach_id
+            data_type: bigint
+          - name: coach_name
+            data_type: varchar
+          - name: last_updated
+            data_type: timestamp with time zone
+          - name: area_code
+            data_type: varchar
