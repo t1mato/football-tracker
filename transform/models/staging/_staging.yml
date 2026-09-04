@@ -49,21 +49,64 @@ models:
 
   - name: stg_squad_observations
     tests:
+      # Grain test only proves the combination is unique. NULLs group together,
+      # so one all-NULL key column passes it -- hence not_null on each part.
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns: [team_id, player_id, observed_date]
+    columns:
+      - name: team_id
+        tests: [not_null]
+      - name: player_id
+        tests: [not_null]
+      - name: observed_date
+        tests: [not_null]
 
   - name: stg_standings
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns: [competition_code, season_id, team_id, snapshot_date]
+    columns:
+      - name: competition_code
+        tests: [not_null]
+      - name: season_id
+        # iter_standings derives this from (payload.season or {}).get('id'),
+        # which is None if the envelope ever omits season. Every row of that
+        # snapshot would then share a NULL key, dlt's merge would collapse
+        # them, and the grain test above would still pass.
+        tests: [not_null]
+      - name: team_id
+        tests: [not_null]
+      - name: snapshot_date
+        tests: [not_null]
+      - name: table_type
+        # The grain deliberately excludes stage/type because that is the key
+        # dlt merges on upstream. So if a competition ever returns a second
+        # table for the same day -- HOME/AWAY alongside TOTAL, or a CL
+        # playoff table beside the league phase -- the rows collapse before
+        # they reach here and no test downstream can detect the loss. This
+        # warns when that assumption breaks; the real fix is widening the
+        # merge key in the dlt resource, which is Phase 1 work.
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['TOTAL']
+              config:
+                severity: warn
 
   - name: stg_scorers
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
             combination_of_columns: [competition_code, season_id, player_id]
+    columns:
+      - name: competition_code
+        tests: [not_null]
+      - name: season_id
+        tests: [not_null]
+      - name: player_id
+        tests: [not_null]
 
   - name: stg_venues
     columns:

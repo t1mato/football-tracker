@@ -3,6 +3,13 @@ football_tracker:
   outputs:
     dev:
       type: duckdb
+      # Relative to the PROCESS working directory, not to this file -- duckdb
+      # gets the string as-is. Every Makefile target cds into transform/ first,
+      # so it resolves correctly today. It will not if something runs dbt from
+      # the repo root with --profiles-dir transform (a Dagster DbtCliResource
+      # passes project_dir and profiles_dir explicitly): dbt would silently
+      # create a new empty database one level up and build against it, with no
+      # error. Revisit when Phase 3 lands and the invocation is known.
       path: ../football_data.duckdb
       threads: 4
       # Load-bearing, not cosmetic. Verified: without this block dbt-duckdb

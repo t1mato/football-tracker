@@ -1,6 +1,6 @@
 select
     team_id,
     player_id,
-    observed_date,
+    cast(observed_date as date) as observed_date,  -- VARCHAR upstream
     position
 from {{ source('raw', 'squad_observations') }}

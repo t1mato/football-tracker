@@ -12,7 +12,11 @@ normalised as (
         status                          as status_raw,
         matchday,
         stage,
-        "group"                         as group_name,
+        -- adapter.quote, not "group": double quotes delimit an identifier in
+        -- DuckDB but a STRING LITERAL in BigQuery, so the hand-quoted form
+        -- compiles there without error and returns the constant 'group' for
+        -- every row. Silent, and no test would catch it.
+        {{ adapter.quote('group') }}        as group_name,
         last_updated,
         home_team_id,
         home_team_name,

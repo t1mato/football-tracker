@@ -21,10 +21,18 @@ seed:
 # `build` rather than `seed` + `test`, because dbt test does not create
 # relations: a test-only run errors on every schema test with "relation does
 # not exist". build runs seeds, then models, then tests in DAG order.
+#
+# --warn-error-options is what makes CI more than an exit-code check: dbt
+# build exits 0 on WARN, so a deprecation would pass unnoticed. Scoped to
+# Deprecations on purpose -- the source accepted_values test is *designed* to
+# warn on a couple of defective statuses, and blanket --warn-error would turn
+# that routine signal into a red build. Verified both halves: the deprecated
+# YAML shape errors under this flag, and the 2-row accepted_values warning
+# still exits 0.
 ci:
 	cd transform && $(DBT) deps
 	cd transform && $(DBT) run-operation create_empty_sources --target ci
-	cd transform && $(DBT) build --target ci
+	cd transform && $(DBT) build --target ci --warn-error-options '{"error": ["Deprecations"]}'
 	$(MAKE) tz-check
 
 # Runs the unit tests under a deliberately wrong session timezone. Any model
@@ -38,5 +46,9 @@ tz-check:
 	cd transform && $(DBT) run-operation create_empty_sources --target tz_probe
 	cd transform && $(DBT) test --select test_type:unit --target tz_probe
 
+# Removes transform/ci.duckdb too. dbt clean does not know about it, and a
+# stale one is not harmless: create_empty_sources rebuilds from the
+# declarations, but anything else left behind in that file persists.
 clean:
 	cd transform && $(DBT) clean
+	rm -f transform/ci.duckdb

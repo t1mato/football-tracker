@@ -2,10 +2,11 @@ select
     competition_code,
     season_id,
     team_id,
-    snapshot_date,
+    cast(snapshot_date as date) as snapshot_date,  -- VARCHAR upstream
     stage,
     type as table_type,
-    "group" as group_name,
+    -- See stg_matches: double quotes are a string literal on BigQuery.
+    {{ adapter.quote('group') }} as group_name,
     position,
     played_games,
     form,
