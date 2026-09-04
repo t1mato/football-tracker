@@ -1,0 +1,19 @@
+select
+    competition_code,
+    season_id,
+    team_id,
+    snapshot_date,
+    stage,
+    table_type,
+    group_name,
+    position,
+    played_games,
+    form,
+    won,
+    draw,
+    lost,
+    points,
+    goals_for,
+    goals_against,
+    goal_difference
+from {{ ref('stg_standings') }}

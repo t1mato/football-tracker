@@ -19,6 +19,8 @@ models:
         tests: [unique, not_null]
       - name: team_id
         tests: [not_null]
+      - name: is_derived
+        tests: [not_null]
 
   - name: dim_venues
     columns:
@@ -118,6 +120,69 @@ models:
           - accepted_values:
               arguments:
                 values: ['W', 'D', 'L']
+
+  - name: fct_standings_snapshot
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [competition_code, season_id, team_id, snapshot_date]
+    columns:
+      - name: competition_code
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
+      - name: season_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_seasons')
+                field: season_id
+      - name: team_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+
+  - name: fct_scorers
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [competition_code, season_id, player_id]
+    columns:
+      - name: competition_code
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
+      - name: season_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_seasons')
+                field: season_id
+      - name: player_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_players')
+                field: player_id
+      - name: team_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
 
 unit_tests:
   - name: finished_match_produces_correct_result_and_score_swap
