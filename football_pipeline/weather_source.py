@@ -8,7 +8,8 @@ changing anything here; it records why each decision was made.
 
 import logging
 import re
-from collections.abc import Iterator
+import time
+from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from itertools import groupby
 from pathlib import Path
@@ -17,6 +18,8 @@ from typing import Any
 import dlt
 import duckdb
 import requests
+
+from football_pipeline.rate_limiter import RateLimiter
 
 FINISHED_STATUSES = frozenset({"FINISHED", "AWARDED"})
 
@@ -102,24 +105,61 @@ class OutOfRangeError(Exception):
     """Every date in the requested range is outside what the endpoint will serve."""
 
 
-class OpenMeteoClient:
-    """No RateLimiter, no 429/5xx retry -- see the design doc for why.
+class RateLimitExceeded(Exception):
+    """The server kept returning 429 after we exhausted our retries."""
 
-    The only failure mode the probe observed is a 400 for a date outside the
-    endpoint's currently-valid window, and its body states the exact bounds.
-    That's the one thing this client handles specially.
+
+# Conservative on purpose: the real per-minute cap appears to be cost-weighted
+# (date-range-days x variable-count), not a flat request count -- 25 large,
+# multi-year requests tripped it in under 10 seconds while 300 small,
+# 1-day ones ran a full 60s with no failure (measured 2026-09-07, see the
+# design doc). capacity=10 gives roughly 2.5x margin under the measured
+# failure point for the expensive request shape this project actually makes.
+DEFAULT_LIMITER_CAPACITY = 10
+DEFAULT_LIMITER_PER_SECONDS = 60.0
+
+# No Retry-After header exists on this API's 429 (confirmed on the real one);
+# the quota window is a minute, so that's the only wait justified without
+# guessing -- same reasoning as client.py's DEFAULT_RETRY_AFTER.
+_RATE_LIMIT_FALLBACK_WAIT = 60.0
+
+
+class OpenMeteoClient:
+    """Rate-limited like FootballDataClient, for the same reason: a real 429.
+
+    The limiter is optimistic; the server is authoritative. There's no header
+    to correct it from here (unlike football-data.org's
+    X-Requests-Available-Minute), so a 429 despite proactive throttling
+    empties the bucket and falls back to a fixed wait.
     """
 
     def __init__(
-        self, *, session: requests.Session | None = None, timeout: float = 30.0
+        self,
+        *,
+        limiter: RateLimiter,
+        session: requests.Session | None = None,
+        sleep: Callable[[float], None] = time.sleep,
+        timeout: float = 30.0,
+        max_retries: int = 3,
     ) -> None:
+        self._limiter = limiter
         self._session = session or requests.Session()
+        self._sleep = sleep
         self._timeout = timeout
+        self._max_retries = max_retries
 
     def fetch_hourly(
         self, host: str, *, latitude: float, longitude: float, start_date: str, end_date: str
     ) -> dict[str, Any]:
-        return self._fetch(host, latitude, longitude, start_date, end_date, retried=False)
+        return self._fetch(
+            host,
+            latitude,
+            longitude,
+            start_date,
+            end_date,
+            retried_range=False,
+            attempt=1,
+        )
 
     def _fetch(
         self,
@@ -129,8 +169,13 @@ class OpenMeteoClient:
         start_date: str,
         end_date: str,
         *,
-        retried: bool,
+        retried_range: bool,
+        attempt: int,
     ) -> dict[str, Any]:
+        wait = self._limiter.acquire()
+        if wait > 0:
+            self._sleep(wait)
+
         params: dict[str, str | float] = {
             "latitude": latitude,
             "longitude": longitude,
@@ -144,12 +189,36 @@ class OpenMeteoClient:
             params=params,
             timeout=self._timeout,
         )
+
+        if response.status_code == 429:
+            if attempt >= self._max_retries:
+                raise RateLimitExceeded(f"still rate limited after {self._max_retries} attempts")
+            self._limiter.sync_from_server(0)
+            self._sleep(_RATE_LIMIT_FALLBACK_WAIT)
+            return self._fetch(
+                host,
+                latitude,
+                longitude,
+                start_date,
+                end_date,
+                retried_range=retried_range,
+                attempt=attempt + 1,
+            )
+
         if response.status_code == 400:
             clipped = _clip_to_allowed_range(response.json(), start_date, end_date)
-            if clipped is None or retried:
+            if clipped is None or retried_range:
                 raise OutOfRangeError(f"{host}: {start_date}..{end_date}")
             new_start, new_end = clipped
-            return self._fetch(host, latitude, longitude, new_start, new_end, retried=True)
+            return self._fetch(
+                host,
+                latitude,
+                longitude,
+                new_start,
+                new_end,
+                retried_range=True,
+                attempt=attempt,
+            )
 
         response.raise_for_status()
         data: dict[str, Any] = response.json()

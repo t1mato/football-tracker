@@ -10,11 +10,13 @@ import pytest
 import requests
 import responses
 
+from football_pipeline.rate_limiter import RateLimiter
 from football_pipeline.weather_source import (
     FINISHED_STATUSES,
     MatchNeedingWeather,
     OpenMeteoClient,
     OutOfRangeError,
+    RateLimitExceeded,
     iter_match_weather,
     select_matches_needing_weather,
     weather_source,
@@ -22,6 +24,15 @@ from football_pipeline.weather_source import (
 
 FORECAST_HOST = "https://api.open-meteo.com/v1/forecast"
 ARCHIVE_HOST = "https://archive-api.open-meteo.com/v1/archive"
+
+
+def make_client(*, capacity: int = 10, sleep: Any = lambda seconds: None) -> OpenMeteoClient:
+    """A client whose limiter never makes a test actually wait."""
+    return OpenMeteoClient(
+        limiter=RateLimiter(capacity=capacity, per_seconds=60, clock=lambda: 0.0),
+        sleep=sleep,
+    )
+
 
 HOURLY_BODY = {
     "latitude": 53.42,
@@ -150,7 +161,7 @@ def test_finished_statuses_used_to_split_forecast_from_archive_candidates() -> N
 def test_fetch_hourly_returns_the_parsed_body() -> None:
     responses.get(FORECAST_HOST, json=HOURLY_BODY, status=200)
 
-    body = OpenMeteoClient().fetch_hourly(
+    body = make_client().fetch_hourly(
         FORECAST_HOST, latitude=53.43, longitude=-2.96,
         start_date="2026-09-01", end_date="2026-09-01",
     )
@@ -174,7 +185,7 @@ def test_an_out_of_range_400_is_clipped_and_retried_once() -> None:
     )
     responses.get(FORECAST_HOST, json=HOURLY_BODY, status=200)
 
-    OpenMeteoClient().fetch_hourly(
+    make_client().fetch_hourly(
         FORECAST_HOST, latitude=53.43, longitude=-2.96,
         start_date="2026-05-01", end_date="2026-09-25",
     )
@@ -202,7 +213,7 @@ def test_a_second_out_of_range_400_after_clipping_raises() -> None:
         )
 
     with pytest.raises(OutOfRangeError):
-        OpenMeteoClient().fetch_hourly(
+        make_client().fetch_hourly(
             FORECAST_HOST, latitude=53.43, longitude=-2.96,
             start_date="2026-01-01", end_date="2026-09-25",
         )
@@ -223,7 +234,7 @@ def test_a_request_with_no_overlap_at_all_raises_without_a_wasted_retry() -> Non
     )
 
     with pytest.raises(OutOfRangeError):
-        OpenMeteoClient().fetch_hourly(
+        make_client().fetch_hourly(
             FORECAST_HOST, latitude=53.43, longitude=-2.96,
             start_date="2020-01-01", end_date="2020-01-31",
         )
@@ -237,12 +248,110 @@ def test_a_server_error_propagates_without_retrying() -> None:
     responses.get(FORECAST_HOST, json={}, status=500)
 
     with pytest.raises(requests.HTTPError):
-        OpenMeteoClient().fetch_hourly(
+        make_client().fetch_hourly(
             FORECAST_HOST, latitude=53.43, longitude=-2.96,
             start_date="2026-09-01", end_date="2026-09-01",
         )
 
     assert len(responses.calls) == 1
+
+
+def test_the_limiters_wait_is_slept_before_the_request_goes_out() -> None:
+    """The limiter only reports a wait; the client is what actually blocks.
+
+    Real evidence, not a guess: the first live weather run hit a genuine 429
+    partway through the archive backfill (2026-09-07) -- Open-Meteo's
+    per-minute cap is real, and this client throttles proactively against it.
+    """
+    sleeps: list[float] = []
+    limiter = RateLimiter(capacity=1, per_seconds=60, clock=lambda: 0.0)
+    client = OpenMeteoClient(limiter=limiter, sleep=sleeps.append)
+
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.GET, FORECAST_HOST, json=HOURLY_BODY, status=200)
+        rsps.add(responses.GET, FORECAST_HOST, json=HOURLY_BODY, status=200)
+        client.fetch_hourly(
+            FORECAST_HOST, latitude=53.43, longitude=-2.96,
+            start_date="2026-09-01", end_date="2026-09-01",
+        )
+        client.fetch_hourly(
+            FORECAST_HOST, latitude=53.43, longitude=-2.96,
+            start_date="2026-09-01", end_date="2026-09-01",
+        )
+
+    assert sleeps == [pytest.approx(60.0)]
+
+
+class FakeClock:
+    """Linked to FakeSleep below -- sleeping is what advances it.
+
+    A clock frozen at a constant would make a post-sleep acquire() look like
+    no time passed at all, which is not what happens for real: RateLimiter's
+    clock and OpenMeteoClient's sleep are two injected seams that must agree
+    with each other, exactly like test_client.py's harness for
+    FootballDataClient.
+    """
+
+    def __init__(self, now: float = 0.0) -> None:
+        self.now = now
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+class FakeSleep:
+    def __init__(self, clock: FakeClock) -> None:
+        self.clock = clock
+        self.calls: list[float] = []
+
+    def __call__(self, seconds: float) -> None:
+        self.calls.append(seconds)
+        self.clock.advance(seconds)
+
+
+@responses.activate
+def test_a_429_is_retried_after_emptying_the_bucket_and_waiting_a_minute() -> None:
+    """No Retry-After header exists on this API (confirmed on the real 429) --
+    a fixed 60s fallback is the only wait justified without guessing.
+
+    A linked clock/sleep: the bucket is emptied by sync_from_server(0), then
+    the 60s sleep is real elapsed time as far as the limiter is concerned, so
+    the retry's own acquire() finds a fully-refilled bucket rather than
+    queuing an extra wait behind it.
+    """
+    responses.get(FORECAST_HOST, json={"error": True, "reason": "Minutely API request "
+                                        "limit exceeded. Please try again in one minute."},
+                  status=429)
+    responses.get(FORECAST_HOST, json=HOURLY_BODY, status=200)
+    clock = FakeClock()
+    sleep = FakeSleep(clock)
+    limiter = RateLimiter(capacity=10, per_seconds=60, clock=clock)
+
+    body = OpenMeteoClient(limiter=limiter, sleep=sleep).fetch_hourly(
+        FORECAST_HOST, latitude=53.43, longitude=-2.96,
+        start_date="2026-09-01", end_date="2026-09-01",
+    )
+
+    assert body["hourly"]["time"] == ["2026-09-01T00:00", "2026-09-01T01:00"]
+    assert len(responses.calls) == 2
+    assert sleep.calls == [60.0]
+
+
+@responses.activate
+def test_a_persistent_429_gives_up_rather_than_looping_forever() -> None:
+    for _ in range(3):
+        responses.get(FORECAST_HOST, json={}, status=429)
+
+    with pytest.raises(RateLimitExceeded):
+        make_client().fetch_hourly(
+            FORECAST_HOST, latitude=53.43, longitude=-2.96,
+            start_date="2026-09-01", end_date="2026-09-01",
+        )
+
+    assert len(responses.calls) == 3
 
 
 ANFIELD_SEP_BODY = {
@@ -265,7 +374,7 @@ def test_one_finished_and_one_upcoming_match_hit_different_endpoints() -> None:
         MatchNeedingWeather(2, "anfield", "2026-09-20", 12, "TIMED", 53.43, -2.96),
     ]
 
-    rows = list(iter_match_weather(OpenMeteoClient(), matches))
+    rows = list(iter_match_weather(make_client(), matches))
 
     assert len(responses.calls) == 2
     assert {r["match_id"] for r in rows} == {1, 2}
@@ -287,7 +396,7 @@ def test_two_matches_at_the_same_venue_share_one_call() -> None:
         MatchNeedingWeather(2, "anfield", "2026-09-01", 15, "FINISHED", 53.43, -2.96),
     ]
 
-    rows = list(iter_match_weather(OpenMeteoClient(), matches))
+    rows = list(iter_match_weather(make_client(), matches))
 
     assert len(responses.calls) == 1
     assert {r["match_id"] for r in rows} == {1, 2}
@@ -305,7 +414,7 @@ def test_a_match_whose_hour_is_missing_from_the_response_is_skipped() -> None:
 
     matches = [MatchNeedingWeather(1, "anfield", "2026-09-01", 23, "FINISHED", 53.43, -2.96)]
 
-    rows = list(iter_match_weather(OpenMeteoClient(), matches))
+    rows = list(iter_match_weather(make_client(), matches))
 
     assert rows == []
 
@@ -322,7 +431,7 @@ def test_an_out_of_range_venue_is_skipped_without_failing_the_run() -> None:
 
     matches = [MatchNeedingWeather(1, "anfield", "2020-01-01", 12, "FINISHED", 53.43, -2.96)]
 
-    rows = list(iter_match_weather(OpenMeteoClient(), matches))
+    rows = list(iter_match_weather(make_client(), matches))
 
     assert rows == []
 
@@ -332,7 +441,7 @@ def test_the_source_exposes_one_merge_resource_keyed_on_match_id(tmp_path: Path)
     responses.get(ARCHIVE_HOST, json=ANFIELD_SEP_BODY, status=200)
 
     db_path = build_db(tmp_path)
-    source = weather_source(client=OpenMeteoClient(), db_path=db_path)
+    source = weather_source(client=make_client(), db_path=db_path)
 
     assert set(source.resources) == {"match_weather"}
     resource = source.resources["match_weather"]
@@ -364,7 +473,7 @@ def test_an_actual_reading_overwrites_an_earlier_forecast(tmp_path: Path) -> Non
 
         @dlt.resource(name="match_weather", write_disposition="merge", primary_key="match_id")
         def forecast_run() -> Iterator[dict[str, Any]]:
-            yield from iter_match_weather(OpenMeteoClient(), upcoming)
+            yield from iter_match_weather(make_client(), upcoming)
 
         pipeline.run(forecast_run())
 
@@ -380,7 +489,7 @@ def test_an_actual_reading_overwrites_an_earlier_forecast(tmp_path: Path) -> Non
 
         @dlt.resource(name="match_weather", write_disposition="merge", primary_key="match_id")
         def actual_run() -> Iterator[dict[str, Any]]:
-            yield from iter_match_weather(OpenMeteoClient(), finished)
+            yield from iter_match_weather(make_client(), finished)
 
         pipeline.run(actual_run())
 

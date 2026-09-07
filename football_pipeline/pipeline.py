@@ -16,7 +16,12 @@ import dlt
 from football_pipeline.client import FootballDataClient
 from football_pipeline.football_data_source import football_data_source
 from football_pipeline.rate_limiter import RateLimiter
-from football_pipeline.weather_source import OpenMeteoClient, weather_source
+from football_pipeline.weather_source import (
+    DEFAULT_LIMITER_CAPACITY,
+    DEFAULT_LIMITER_PER_SECONDS,
+    OpenMeteoClient,
+    weather_source,
+)
 
 SECRETS_PATH = Path(".dlt/secrets.toml")
 DEFAULT_DB_PATH = Path("football_data.duckdb")
@@ -69,7 +74,14 @@ def run_weather(db_path: Path = DEFAULT_DB_PATH) -> Any:
         destination=dlt.destinations.duckdb(credentials=str(db_path)),
         dataset_name="raw",
     )
-    source = weather_source(client=OpenMeteoClient(), db_path=db_path)
+    client = OpenMeteoClient(
+        limiter=RateLimiter(
+            capacity=DEFAULT_LIMITER_CAPACITY,
+            per_seconds=DEFAULT_LIMITER_PER_SECONDS,
+            clock=time.monotonic,
+        )
+    )
+    source = weather_source(client=client, db_path=db_path)
     return pipeline.run(source)
 
 

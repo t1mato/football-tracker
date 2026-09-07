@@ -1,4 +1,9 @@
-"""Token-bucket rate limiter for football-data.org's 10 requests/minute cap.
+"""Token-bucket rate limiter, shared by any client that needs one.
+
+Used for football-data.org's 10 requests/minute cap, and for Open-Meteo's
+(undocumented, cost-weighted) per-minute cap -- see
+docs/specs/2026-09-07-weather-ingestion-design.md for how that one was
+measured.
 
 The limiter never sleeps. `acquire()` reserves a slot and reports how long the
 caller must wait before using it, which keeps this module free of side effects
