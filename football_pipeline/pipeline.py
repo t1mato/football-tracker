@@ -16,8 +16,10 @@ import dlt
 from football_pipeline.client import FootballDataClient
 from football_pipeline.football_data_source import football_data_source
 from football_pipeline.rate_limiter import RateLimiter
+from football_pipeline.weather_source import OpenMeteoClient, weather_source
 
 SECRETS_PATH = Path(".dlt/secrets.toml")
+DEFAULT_DB_PATH = Path("football_data.duckdb")
 
 # Bump this every August when the season rolls over. If it is left behind,
 # nightly runs keep requesting the stale season and fixtures silently stop
@@ -56,7 +58,25 @@ def run(seasons: tuple[int, ...]) -> Any:
     return pipeline.run(source)
 
 
+def run_weather(db_path: Path = DEFAULT_DB_PATH) -> Any:
+    """Reads fct_matches/dim_venues from db_path and writes raw.match_weather
+    back into the same file -- destination must be pinned explicitly, since
+    dlt's bare "duckdb" destination defaults to a file named after
+    pipeline_name, not this project's actual warehouse file.
+    """
+    pipeline = dlt.pipeline(
+        pipeline_name="football_weather",
+        destination=dlt.destinations.duckdb(credentials=str(db_path)),
+        dataset_name="raw",
+    )
+    source = weather_source(client=OpenMeteoClient(), db_path=db_path)
+    return pipeline.run(source)
+
+
 if __name__ == "__main__":
-    requested = tuple(int(a) for a in sys.argv[1:]) or (CURRENT_SEASON,)
-    print(f"loading seasons: {requested}")
-    print(run(requested))
+    if sys.argv[1:2] == ["weather"]:
+        print(run_weather())
+    else:
+        requested = tuple(int(a) for a in sys.argv[1:]) or (CURRENT_SEASON,)
+        print(f"loading seasons: {requested}")
+        print(run(requested))
