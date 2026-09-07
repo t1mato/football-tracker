@@ -33,9 +33,9 @@ select
     team_a_id,
     team_b_id,
     count(*) as matches_played,
-    count(*) filter (where winner_side = 'TEAM_A') as team_a_wins,
-    count(*) filter (where winner_side = 'TEAM_B') as team_b_wins,
-    count(*) filter (where winner_side = 'DRAW') as draws,
+    sum(case when winner_side = 'TEAM_A' then 1 else 0 end) as team_a_wins,
+    sum(case when winner_side = 'TEAM_B' then 1 else 0 end) as team_b_wins,
+    sum(case when winner_side = 'DRAW' then 1 else 0 end) as draws,
     sum(team_a_goals) as team_a_goals,
     sum(team_b_goals) as team_b_goals
 from normalised

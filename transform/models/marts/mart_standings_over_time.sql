@@ -53,7 +53,11 @@ select
     -- goals scored. This mart may legitimately drift from
     -- fct_standings_snapshot's ground truth -- real competitions have
     -- tiebreakers (head-to-head record, disciplinary points) a
-    -- reconstruction from match results alone cannot know about.
+    -- reconstruction from match results alone cannot know about. It also
+    -- omits any team that hasn't yet played the season's latest matchday,
+    -- silently shifting everyone below them up one place -- live today in
+    -- 2 in-progress season/group partitions. CLAUDE.md already says to
+    -- serve fct_standings_snapshot where accuracy matters; this is why.
     rank() over (
         partition by competition_code, season_id, group_name, matchday
         order by cumulative_points desc, cumulative_goal_difference desc, cumulative_goals_for desc

@@ -42,9 +42,9 @@ vars:
   # Domestic leagues are entirely REGULAR_SEASON -- no knockout stage
   # exists there at all. CL alone needs this: GROUP_STAGE (2023/24) and
   # LEAGUE_STAGE (2024/25+) both have a real table to rank a position
-  # within; LAST_16/QUARTER_FINALS/SEMI_FINALS/FINAL do not -- matchday
-  # resets to 1-2 every knockout round (verified 2026-09-04), so there is
-  # no "position after matchday N" to compute there at all.
+  # within; LAST_16/QUARTER_FINALS/SEMI_FINALS/FINAL/PLAYOFFS do not --
+  # matchday resets to 1-2 every knockout round (verified 2026-09-04), so
+  # there is no "position after matchday N" to compute there at all.
   standings_phase_stages:
     - REGULAR_SEASON
     - GROUP_STAGE
@@ -55,7 +55,7 @@ models:
     staging:
       +materialized: view
     marts:
-      # All ten models in this phase are full-rebuild tables. dlt already
+      # Every model in this folder is a full-rebuild table. dlt already
       # solved incremental correctness at the raw layer (matches merges on
       # id, standings merges on a key that includes snapshot_date so history
       # accumulates), so recomputing from staging on every run is always

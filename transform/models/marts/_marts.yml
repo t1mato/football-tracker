@@ -276,6 +276,9 @@ models:
       - dbt_utils.expression_is_true:
           arguments:
             expression: "team_a_id < team_b_id"
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "matches_played = team_a_wins + team_b_wins + draws"
     columns:
       - name: team_a_id
         tests:
@@ -315,6 +318,8 @@ models:
                 to: ref('dim_seasons')
                 field: season_id
       - name: finished_matches
+        tests: [not_null]
+      - name: decided_matches
         tests: [not_null]
 
 unit_tests:
@@ -403,6 +408,11 @@ unit_tests:
       win streak) -- current_win_streak must be 1, not 3. The D+W pair at
       the end IS one unbeaten island, so current_unbeaten_streak is 2.
       longest_win_streak stays 2 (the W,W at the start), never overtaken.
+      Also includes a second competition (CL) for the same team, both to
+      prove the (team_id, competition_code) partition actually keeps the
+      two streaks independent, and to exercise the all-losses path where
+      longest_win_streak/longest_unbeaten_streak must report 0 via
+      coalesce(...), not NULL.
     model: mart_streaks
     given:
       - input: ref('fct_team_matches')
@@ -412,10 +422,14 @@ unit_tests:
           - {team_id: 900, competition_code: 'PL', kickoff_date_utc: '2024-01-03', result: 'L'}
           - {team_id: 900, competition_code: 'PL', kickoff_date_utc: '2024-01-04', result: 'D'}
           - {team_id: 900, competition_code: 'PL', kickoff_date_utc: '2024-01-05', result: 'W'}
+          - {team_id: 900, competition_code: 'CL', kickoff_date_utc: '2024-01-01', result: 'L'}
+          - {team_id: 900, competition_code: 'CL', kickoff_date_utc: '2024-01-02', result: 'L'}
     expect:
       rows:
         - {team_id: 900, competition_code: 'PL', current_win_streak: 1,
            current_unbeaten_streak: 2, longest_win_streak: 2, longest_unbeaten_streak: 2}
+        - {team_id: 900, competition_code: 'CL', current_win_streak: 0,
+           current_unbeaten_streak: 0, longest_win_streak: 0, longest_unbeaten_streak: 0}
 
   - name: a_broken_streak_reports_zero_current_but_keeps_the_longest
     description: >
@@ -435,3 +449,26 @@ unit_tests:
       rows:
         - {team_id: 901, competition_code: 'PL', current_win_streak: 0,
            current_unbeaten_streak: 0, longest_win_streak: 3, longest_unbeaten_streak: 3}
+
+  - name: last_five_reads_oldest_to_newest_and_drops_the_oldest_match
+    description: >
+      6 chronological results; the window must keep the most recent 5 and
+      drop the oldest, and the display string must read oldest-to-newest
+      (not the DESC order used internally to pick the window) -- these are
+      two different orderings computed from the same rows, and swapping
+      one for the other is the natural mistake here. Previously verified
+      only by eyeballing one live team's result string.
+    model: mart_team_form
+    given:
+      - input: ref('fct_team_matches')
+        rows:
+          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-01', result: 'W'}
+          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-02', result: 'L'}
+          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-03', result: 'D'}
+          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-04', result: 'W'}
+          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-05', result: 'W'}
+          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-06', result: 'L'}
+    expect:
+      rows:
+        - {team_id: 950, competition_code: 'PL', last_5_results: 'LDWWL',
+           wins: 2, draws: 1, losses: 2}

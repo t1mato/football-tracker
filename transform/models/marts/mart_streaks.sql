@@ -2,6 +2,7 @@ with results as (
     select
         team_id,
         competition_code,
+        match_id,
         kickoff_date_utc,
         result,
         (result = 'W') as is_win,
@@ -18,9 +19,9 @@ with results as (
 numbered as (
     select
         *,
-        row_number() over (partition by team_id, competition_code order by kickoff_date_utc) as rn_all,
-        row_number() over (partition by team_id, competition_code, is_win order by kickoff_date_utc) as rn_win,
-        row_number() over (partition by team_id, competition_code, is_unbeaten order by kickoff_date_utc) as rn_unbeaten
+        row_number() over (partition by team_id, competition_code order by kickoff_date_utc, match_id) as rn_all,
+        row_number() over (partition by team_id, competition_code, is_win order by kickoff_date_utc, match_id) as rn_win,
+        row_number() over (partition by team_id, competition_code, is_unbeaten order by kickoff_date_utc, match_id) as rn_unbeaten
     from results
 ),
 
