@@ -13,7 +13,7 @@ from pathlib import Path
 
 import duckdb
 
-from app.queries import get_competitions, get_current_season_id
+from app.queries import get_competitions, get_current_season_id, get_standings
 
 
 def build_db(tmp_path: Path) -> Path:
@@ -51,3 +51,73 @@ def test_get_current_season_id_is_the_max_per_competition(tmp_path: Path) -> Non
 
     assert get_current_season_id(con, "PL") == 2502
     assert get_current_season_id(con, "CL") == 2601
+
+
+def build_standings_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.fct_standings_snapshot (
+            competition_code varchar, season_id integer, team_id bigint,
+            snapshot_date date, stage varchar, table_type varchar,
+            position integer, played_games integer, won integer, draw integer,
+            lost integer, points integer, goals_for integer, goals_against integer,
+            goal_difference integer, form varchar
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar)
+    """)
+    con.close()
+    return db_path
+
+
+def test_a_normal_league_phase_returns_the_table_ordered_by_position(tmp_path: Path) -> None:
+    db_path = build_standings_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B');
+        insert into main.fct_standings_snapshot values
+            ('PL', 2502, 2, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 2, 3, 2,0,1, 6,5,3,2, 'WWL'),
+            ('PL', 2502, 1, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 1, 3, 3,0,0, 9,7,1,6, 'WWW')
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    result = get_standings(con, "PL", 2502)
+
+    assert result.message is None
+    assert result.table is not None
+    assert list(result.table["team_name"]) == ["Team A", "Team B"]
+    assert list(result.table["position"]) == [1, 2]
+
+
+def test_no_rows_at_all_returns_a_message_not_an_empty_table(tmp_path: Path) -> None:
+    con = duckdb.connect(str(build_standings_db(tmp_path)), read_only=True)
+
+    result = get_standings(con, "CL", 2601)
+
+    assert result.table is None
+    assert result.message is not None
+    assert "no standings" in result.message.lower()
+
+
+def test_a_knockout_phase_snapshot_returns_the_knockout_message(tmp_path: Path) -> None:
+    """The real case this project cannot currently exercise live (see the
+    plan's "Verified facts" section) -- CL's current data is all
+    LEAGUE_STAGE today. Constructed here so the branch has real coverage.
+    """
+    db_path = build_standings_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values (1, 'Team A');
+        insert into main.fct_standings_snapshot values
+            ('CL', 2601, 1, '2027-03-01', 'QUARTER_FINALS', 'TOTAL',
+             null, null, null,null,null, null,null,null,null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    result = get_standings(con, "CL", 2601)
+
+    assert result.table is None
+    assert result.message is not None
+    assert "knockout" in result.message.lower()
