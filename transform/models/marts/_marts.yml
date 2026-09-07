@@ -239,6 +239,35 @@ models:
       - name: last_5_results
         tests: [not_null]
 
+  - name: mart_streaks
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [team_id, competition_code]
+    columns:
+      - name: team_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: competition_code
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
+      - name: current_win_streak
+        tests: [not_null]
+      - name: current_unbeaten_streak
+        tests: [not_null]
+      - name: longest_win_streak
+        tests: [not_null]
+      - name: longest_unbeaten_streak
+        tests: [not_null]
+
 unit_tests:
   - name: finished_match_produces_correct_result_and_score_swap
     description: >
@@ -317,3 +346,43 @@ unit_tests:
         - {match_id: 4, team_id: 20, opponent_team_id: 10, is_home: false, result: 'L'}
         - {match_id: 5, team_id: 10, opponent_team_id: 20, is_home: true,  result: 'D'}
         - {match_id: 5, team_id: 20, opponent_team_id: 10, is_home: false, result: 'D'}
+
+  - name: an_ongoing_streak_counts_from_the_most_recent_break
+    description: >
+      Chronological results W, W, L, D, W. The most recent match is a win,
+      but it is its own 1-match island (the D right before it broke any
+      win streak) -- current_win_streak must be 1, not 3. The D+W pair at
+      the end IS one unbeaten island, so current_unbeaten_streak is 2.
+      longest_win_streak stays 2 (the W,W at the start), never overtaken.
+    model: mart_streaks
+    given:
+      - input: ref('fct_team_matches')
+        rows:
+          - {team_id: 900, competition_code: 'PL', kickoff_date_utc: '2024-01-01', result: 'W'}
+          - {team_id: 900, competition_code: 'PL', kickoff_date_utc: '2024-01-02', result: 'W'}
+          - {team_id: 900, competition_code: 'PL', kickoff_date_utc: '2024-01-03', result: 'L'}
+          - {team_id: 900, competition_code: 'PL', kickoff_date_utc: '2024-01-04', result: 'D'}
+          - {team_id: 900, competition_code: 'PL', kickoff_date_utc: '2024-01-05', result: 'W'}
+    expect:
+      rows:
+        - {team_id: 900, competition_code: 'PL', current_win_streak: 1,
+           current_unbeaten_streak: 2, longest_win_streak: 2, longest_unbeaten_streak: 2}
+
+  - name: a_broken_streak_reports_zero_current_but_keeps_the_longest
+    description: >
+      Chronological results W, W, W, L. The most recent match is a loss,
+      so both current streaks must be 0 -- not the length of the win run
+      that just ended. longest_win_streak and longest_unbeaten_streak both
+      stay 3, because "longest" is not "current".
+    model: mart_streaks
+    given:
+      - input: ref('fct_team_matches')
+        rows:
+          - {team_id: 901, competition_code: 'PL', kickoff_date_utc: '2024-01-01', result: 'W'}
+          - {team_id: 901, competition_code: 'PL', kickoff_date_utc: '2024-01-02', result: 'W'}
+          - {team_id: 901, competition_code: 'PL', kickoff_date_utc: '2024-01-03', result: 'W'}
+          - {team_id: 901, competition_code: 'PL', kickoff_date_utc: '2024-01-04', result: 'L'}
+    expect:
+      rows:
+        - {team_id: 901, competition_code: 'PL', current_win_streak: 0,
+           current_unbeaten_streak: 0, longest_win_streak: 3, longest_unbeaten_streak: 3}
