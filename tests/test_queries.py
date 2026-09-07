@@ -13,7 +13,13 @@ from pathlib import Path
 
 import duckdb
 
-from app.queries import get_competitions, get_current_season_id, get_standings
+from app.queries import (
+    get_competitions,
+    get_current_season_id,
+    get_recent_matches,
+    get_standings,
+    get_upcoming_matches,
+)
 
 
 def build_db(tmp_path: Path) -> Path:
@@ -121,3 +127,55 @@ def test_a_knockout_phase_snapshot_returns_the_knockout_message(tmp_path: Path) 
     assert result.table is None
     assert result.message is not None
     assert "knockout" in result.message.lower()
+
+
+def build_matches_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.fct_matches (
+            match_id bigint, competition_code varchar, season_id integer,
+            kickoff_utc timestamp, kickoff_time_confirmed boolean, status varchar,
+            home_team_id bigint, away_team_id bigint,
+            full_time_home integer, full_time_away integer
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar);
+        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B')
+    """)
+    con.close()
+    return db_path
+
+
+def test_recent_matches_are_finished_or_awarded_newest_first(tmp_path: Path) -> None:
+    db_path = build_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, 2, 1),
+            (2, 'PL', 2502, '2026-09-08 15:00:00', true, 'FINISHED', 2, 1, 0, 0),
+            (3, 'PL', 2502, '2026-09-15 15:00:00', true, 'SCHEDULED', 1, 2, null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_recent_matches(con, "PL", 2502)
+
+    assert list(rows["match_id"]) == [2, 1]
+
+
+def test_upcoming_matches_are_scheduled_or_timed_soonest_first(tmp_path: Path) -> None:
+    db_path = build_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (3, 'PL', 2502, '2026-09-22 15:00:00', true, 'TIMED', 1, 2, null, null),
+            (4, 'PL', 2502, '2026-09-15 00:00:00', false, 'SCHEDULED', 2, 1, null, null),
+            (5, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, 1, 1)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_upcoming_matches(con, "PL", 2502)
+
+    assert list(rows["match_id"]) == [4, 3]
+    assert rows.iloc[0]["kickoff_time_confirmed"] == False  # noqa: E712

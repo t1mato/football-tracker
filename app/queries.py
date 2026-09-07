@@ -20,6 +20,15 @@ DEFAULT_DB_PATH = Path("football_data.duckdb")
 # fct_standings_snapshot.stage instead of fct_matches.stage.
 LEAGUE_TABLE_STAGES = ("REGULAR_SEASON", "GROUP_STAGE", "LEAGUE_STAGE")
 
+_FINISHED_STATUSES = ("FINISHED", "AWARDED")
+_UPCOMING_STATUSES = ("SCHEDULED", "TIMED")
+
+_MATCH_COLUMNS = (
+    "f.match_id, f.kickoff_utc, f.kickoff_time_confirmed, "
+    "ht.team_name as home_team_name, aw.team_name as away_team_name, "
+    "f.full_time_home, f.full_time_away"
+)
+
 
 @dataclass(frozen=True)
 class StandingsResult:
@@ -111,3 +120,39 @@ def get_standings(
         [competition_code, season_id, latest_snapshot_date],
     ).df()
     return StandingsResult(table=table, message=None)
+
+
+def get_recent_matches(
+    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    return con.execute(
+        f"""
+        select {_MATCH_COLUMNS}
+        from fct_matches f
+        join dim_teams ht on f.home_team_id = ht.team_id
+        join dim_teams aw on f.away_team_id = aw.team_id
+        where f.competition_code = ? and f.season_id = ?
+          and f.status in ('{"', '".join(_FINISHED_STATUSES)}')
+        order by f.kickoff_utc desc
+        limit 10
+        """,
+        [competition_code, season_id],
+    ).df()
+
+
+def get_upcoming_matches(
+    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    return con.execute(
+        f"""
+        select {_MATCH_COLUMNS}
+        from fct_matches f
+        join dim_teams ht on f.home_team_id = ht.team_id
+        join dim_teams aw on f.away_team_id = aw.team_id
+        where f.competition_code = ? and f.season_id = ?
+          and f.status in ('{"', '".join(_UPCOMING_STATUSES)}')
+        order by f.kickoff_utc asc
+        limit 10
+        """,
+        [competition_code, season_id],
+    ).df()
