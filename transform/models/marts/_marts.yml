@@ -294,6 +294,29 @@ models:
       - name: matches_played
         tests: [not_null]
 
+  - name: mart_cross_league_stats
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [competition_code, season_id]
+    columns:
+      - name: competition_code
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
+      - name: season_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_seasons')
+                field: season_id
+      - name: finished_matches
+        tests: [not_null]
+
 unit_tests:
   - name: finished_match_produces_correct_result_and_score_swap
     description: >
