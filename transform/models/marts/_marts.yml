@@ -268,6 +268,32 @@ models:
       - name: longest_unbeaten_streak
         tests: [not_null]
 
+  - name: mart_head_to_head
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [team_a_id, team_b_id]
+      - dbt_utils.expression_is_true:
+          arguments:
+            expression: "team_a_id < team_b_id"
+    columns:
+      - name: team_a_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: team_b_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: matches_played
+        tests: [not_null]
+
 unit_tests:
   - name: finished_match_produces_correct_result_and_score_swap
     description: >
