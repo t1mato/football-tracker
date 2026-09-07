@@ -1,6 +1,7 @@
-.PHONY: deps build test seed ci tz-check clean
+.PHONY: deps build test seed ci tz-check clean dagster-dev materialize
 
 DBT := $(CURDIR)/.venv/bin/dbt
+DAGSTER := $(CURDIR)/.venv/bin/dagster
 
 deps:
 	cd transform && $(DBT) deps
@@ -52,3 +53,21 @@ tz-check:
 clean:
 	cd transform && $(DBT) clean
 	rm -f transform/ci.duckdb
+
+# Not `cd transform && ...` like the dbt targets above -- orchestration/
+# expects to run from the repo root, same as `python -m football_pipeline.pipeline`
+# already does (relative paths to .dlt/secrets.toml and the DuckDB file).
+# The dbt side of orchestration/definitions.py anchors itself to its own
+# file location regardless, so this CWD choice only matters for the two
+# ingestion assets.
+dagster-dev:
+	$(DAGSTER) dev -f orchestration/definitions.py
+
+# Headless materialization of the whole graph, for scripted local
+# verification without launching the webserver -- what actually proved the
+# football_data_ingestion -> star_schema_build -> weather_ingestion ->
+# weather_dependent_build chain executes as two separate dbt build calls
+# with weather_ingestion running in between, rather than asserting it from
+# how the code reads.
+materialize:
+	$(DAGSTER) asset materialize --select '*' -f orchestration/definitions.py

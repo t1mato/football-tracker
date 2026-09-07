@@ -4,7 +4,13 @@ version = "0.1.0"
 description = "Batch ELT pipeline and analytics app for European football data"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "dbt-core>=1.12",
+    "dagster>=1.11.9",
+    "dagster-webserver>=1.11.9",
+    # <2: nothing else currently constrains this away from a pre-release
+    # major version (verified: bare >=1.12 resolved to dbt-core 2.0.0rc1,
+    # which breaks unit-test type-checking on this project's TIMESTAMPTZ
+    # columns). Pin below 2 regardless of what else is in this list.
+    "dbt-core>=1.12,<2",
     "dbt-duckdb>=1.11",
     "dlt[duckdb]>=1.30",
     "requests>=2.32",
