@@ -66,7 +66,9 @@ def get_standings(
         """,
         [competition_code, season_id],
     ).fetchone()
-    latest_snapshot_date = latest[0] if latest else None
+    # MAX(...) aggregate always returns exactly one row (possibly NULL), never zero rows,
+    # so fetchone() always succeeds. Unpack directly.
+    latest_snapshot_date = latest[0]
 
     if latest_snapshot_date is None:
         return StandingsResult(
@@ -77,9 +79,17 @@ def get_standings(
         """
         select distinct stage from fct_standings_snapshot
         where competition_code = ? and season_id = ? and snapshot_date = ?
+        order by stage
         """,
         [competition_code, season_id, latest_snapshot_date],
     ).fetchone()
+    # DISTINCT with no ORDER BY has unspecified row order in DuckDB. ORDER BY stage makes
+    # the result deterministic (same input always gives same output), though alphabetical
+    # ordering does not guarantee "prefer league-table stages" semantics (a knockout stage
+    # named "FINAL" would still lose to "GROUP_STAGE" alphabetically). This scenario
+    # (multiple stages per snapshot_date) has never been observed in real data.
+    # Unlike the aggregate above, SELECT DISTINCT can return zero rows if no snapshots
+    # exist for this (competition, season, date), so the None check is needed here.
     stage = stage_row[0] if stage_row else None
 
     if stage not in LEAGUE_TABLE_STAGES:
