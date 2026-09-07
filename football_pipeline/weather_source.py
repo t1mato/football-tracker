@@ -14,6 +14,7 @@ from itertools import groupby
 from pathlib import Path
 from typing import Any
 
+import dlt
 import duckdb
 import requests
 
@@ -228,3 +229,17 @@ def iter_match_weather(
                 "wind_speed_10m": body["hourly"]["wind_speed_10m"][idx],
                 "data_type": data_type,
             }
+
+
+@dlt.source(name="weather")
+def weather_source(client: OpenMeteoClient, db_path: Path) -> Any:
+    """One merge resource. The selection query runs once, before dlt starts
+    consuming it -- there is exactly one workload decided per run.
+    """
+    matches = select_matches_needing_weather(db_path)
+
+    @dlt.resource(name="match_weather", write_disposition="merge", primary_key="match_id")
+    def match_weather() -> Iterator[dict[str, Any]]:
+        yield from iter_match_weather(client, matches)
+
+    return (match_weather,)

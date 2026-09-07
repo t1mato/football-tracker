@@ -1,7 +1,10 @@
 """Tests for weather ingestion. No test opens a socket."""
 
+from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
+import dlt
 import duckdb
 import pytest
 import requests
@@ -14,6 +17,7 @@ from football_pipeline.weather_source import (
     OutOfRangeError,
     iter_match_weather,
     select_matches_needing_weather,
+    weather_source,
 )
 
 FORECAST_HOST = "https://api.open-meteo.com/v1/forecast"
@@ -321,3 +325,66 @@ def test_an_out_of_range_venue_is_skipped_without_failing_the_run() -> None:
     rows = list(iter_match_weather(OpenMeteoClient(), matches))
 
     assert rows == []
+
+
+@responses.activate
+def test_the_source_exposes_one_merge_resource_keyed_on_match_id(tmp_path: Path) -> None:
+    responses.get(ARCHIVE_HOST, json=ANFIELD_SEP_BODY, status=200)
+
+    db_path = build_db(tmp_path)
+    source = weather_source(client=OpenMeteoClient(), db_path=db_path)
+
+    assert set(source.resources) == {"match_weather"}
+    resource = source.resources["match_weather"]
+    assert resource.write_disposition == "merge"
+    assert resource._hints["primary_key"] == "match_id"
+
+
+def test_an_actual_reading_overwrites_an_earlier_forecast(tmp_path: Path) -> None:
+    """This is dlt's merge behaviour at write time, not a fact about data at
+    rest -- can't be asserted by inspecting resource metadata alone.
+
+    with_raw_schema=False: dlt must own raw.match_weather's creation here,
+    including its _dlt_id/_dlt_load_id bookkeeping columns. A pre-existing
+    hand-built table (the shape the other tests use to test the selection
+    query) conflicts with dlt trying to add those columns afterward.
+    """
+    db_path = build_db(tmp_path, with_raw_schema=False)
+    pipelines_dir = tmp_path / "pipelines"
+
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.GET, FORECAST_HOST, json=ANFIELD_SEP_BODY, status=200)
+        upcoming = [MatchNeedingWeather(2, "anfield", "2026-09-20", 12, "TIMED", 53.43, -2.96)]
+        pipeline = dlt.pipeline(
+            pipeline_name="test_weather",
+            destination=dlt.destinations.duckdb(credentials=str(db_path)),
+            dataset_name="raw",
+            pipelines_dir=str(pipelines_dir),
+        )
+
+        @dlt.resource(name="match_weather", write_disposition="merge", primary_key="match_id")
+        def forecast_run() -> Iterator[dict[str, Any]]:
+            yield from iter_match_weather(OpenMeteoClient(), upcoming)
+
+        pipeline.run(forecast_run())
+
+    with responses.RequestsMock() as rsps:
+        rsps.add(responses.GET, ARCHIVE_HOST, json=ANFIELD_SEP_BODY, status=200)
+        finished = [MatchNeedingWeather(2, "anfield", "2026-09-20", 12, "FINISHED", 53.43, -2.96)]
+        pipeline = dlt.pipeline(
+            pipeline_name="test_weather",
+            destination=dlt.destinations.duckdb(credentials=str(db_path)),
+            dataset_name="raw",
+            pipelines_dir=str(pipelines_dir),
+        )
+
+        @dlt.resource(name="match_weather", write_disposition="merge", primary_key="match_id")
+        def actual_run() -> Iterator[dict[str, Any]]:
+            yield from iter_match_weather(OpenMeteoClient(), finished)
+
+        pipeline.run(actual_run())
+
+    con = duckdb.connect(str(db_path), read_only=True)
+    rows = con.execute("select data_type from raw.match_weather where match_id = 2").fetchall()
+    con.close()
+    assert rows == [("actual",)]
