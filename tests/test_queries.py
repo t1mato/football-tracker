@@ -13,7 +13,7 @@ from pathlib import Path
 
 import duckdb
 
-from app.queries import get_competitions
+from app.queries import get_competitions, get_current_season_id
 
 
 def build_db(tmp_path: Path) -> Path:
@@ -39,3 +39,15 @@ def test_get_competitions_returns_code_and_name(tmp_path: Path) -> None:
 
     assert set(rows["competition_code"]) == {"PL", "CL"}
     assert set(rows["competition_name"]) == {"Premier League", "UEFA Champions League"}
+
+
+def test_get_current_season_id_is_the_max_per_competition(tmp_path: Path) -> None:
+    db_path = build_db(tmp_path)
+    duckdb.connect(str(db_path)).execute("""
+        create table main.dim_seasons (season_id integer, competition_code varchar);
+        insert into main.dim_seasons values (2501, 'PL'), (2502, 'PL'), (2601, 'CL')
+    """)
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    assert get_current_season_id(con, "PL") == 2502
+    assert get_current_season_id(con, "CL") == 2601

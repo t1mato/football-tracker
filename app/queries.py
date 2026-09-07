@@ -26,3 +26,18 @@ def get_competitions(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
         from dim_competitions
         order by competition_name
     """).df()
+
+
+def get_current_season_id(
+    con: duckdb.DuckDBPyConnection, competition_code: str
+) -> int:
+    """The most recent season_id for this competition -- never hardcoded,
+    so this never drifts from pipeline.py's CURRENT_SEASON (see the design
+    doc for why duplicating that constant here would be a real risk).
+    """
+    row = con.execute(
+        "select max(season_id) from dim_seasons where competition_code = ?",
+        [competition_code],
+    ).fetchone()
+    season_id: int = row[0]
+    return season_id
