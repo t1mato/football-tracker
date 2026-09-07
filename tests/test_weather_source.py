@@ -4,11 +4,29 @@ from pathlib import Path
 
 import duckdb
 import pytest
+import requests
+import responses
 
 from football_pipeline.weather_source import (
     FINISHED_STATUSES,
+    OpenMeteoClient,
+    OutOfRangeError,
     select_matches_needing_weather,
 )
+
+FORECAST_HOST = "https://api.open-meteo.com/v1/forecast"
+ARCHIVE_HOST = "https://archive-api.open-meteo.com/v1/archive"
+
+HOURLY_BODY = {
+    "latitude": 53.42,
+    "longitude": -2.95,
+    "hourly": {
+        "time": ["2026-09-01T00:00", "2026-09-01T01:00"],
+        "temperature_2m": [15.0, 14.5],
+        "precipitation": [0.0, 0.1],
+        "wind_speed_10m": [10.0, 11.0],
+    },
+}
 
 
 def build_db(tmp_path: Path, *, with_raw_schema: bool = True) -> Path:
@@ -120,3 +138,102 @@ def test_a_selected_match_carries_its_venue_coordinates(tmp_path: Path) -> None:
 
 def test_finished_statuses_used_to_split_forecast_from_archive_candidates() -> None:
     assert frozenset({"FINISHED", "AWARDED"}) == FINISHED_STATUSES
+
+
+@responses.activate
+def test_fetch_hourly_returns_the_parsed_body() -> None:
+    responses.get(FORECAST_HOST, json=HOURLY_BODY, status=200)
+
+    body = OpenMeteoClient().fetch_hourly(
+        FORECAST_HOST, latitude=53.43, longitude=-2.96,
+        start_date="2026-09-01", end_date="2026-09-01",
+    )
+
+    assert body["hourly"]["time"] == ["2026-09-01T00:00", "2026-09-01T01:00"]
+    assert responses.calls[0].request.params["latitude"] == "53.43"
+    assert responses.calls[0].request.params["hourly"] == (
+        "temperature_2m,precipitation,wind_speed_10m"
+    )
+    assert responses.calls[0].request.params["timezone"] == "UTC"
+
+
+@responses.activate
+def test_an_out_of_range_400_is_clipped_and_retried_once() -> None:
+    """The real probe's error shape: a 400 whose body states the exact bounds."""
+    responses.get(
+        FORECAST_HOST,
+        json={"error": True, "reason": "Parameter 'end_date' is out of allowed "
+                                        "range from 2026-06-06 to 2026-09-22"},
+        status=400,
+    )
+    responses.get(FORECAST_HOST, json=HOURLY_BODY, status=200)
+
+    OpenMeteoClient().fetch_hourly(
+        FORECAST_HOST, latitude=53.43, longitude=-2.96,
+        start_date="2026-05-01", end_date="2026-09-25",
+    )
+
+    assert len(responses.calls) == 2
+    retried = responses.calls[1].request.params
+    assert retried["start_date"] == "2026-06-06"
+    assert retried["end_date"] == "2026-09-22"
+
+
+@responses.activate
+def test_a_second_out_of_range_400_after_clipping_raises() -> None:
+    """A clipped retry that ALSO 400s gives up rather than retrying forever.
+
+    The requested range overlaps the allowed window (so clipping succeeds
+    and a second real request goes out), but that second request 400s too
+    -- one retry only, ever.
+    """
+    for _ in range(2):
+        responses.get(
+            FORECAST_HOST,
+            json={"error": True, "reason": "Parameter 'start_date' is out of "
+                                            "allowed range from 2026-06-06 to 2026-09-22"},
+            status=400,
+        )
+
+    with pytest.raises(OutOfRangeError):
+        OpenMeteoClient().fetch_hourly(
+            FORECAST_HOST, latitude=53.43, longitude=-2.96,
+            start_date="2026-01-01", end_date="2026-09-25",
+        )
+
+    assert len(responses.calls) == 2
+
+
+@responses.activate
+def test_a_request_with_no_overlap_at_all_raises_without_a_wasted_retry() -> None:
+    """Clipping to an empty range means don't bother retrying -- there's
+    nothing a second identical request could return that the first didn't.
+    """
+    responses.get(
+        FORECAST_HOST,
+        json={"error": True, "reason": "Parameter 'start_date' is out of "
+                                        "allowed range from 2026-06-06 to 2026-09-22"},
+        status=400,
+    )
+
+    with pytest.raises(OutOfRangeError):
+        OpenMeteoClient().fetch_hourly(
+            FORECAST_HOST, latitude=53.43, longitude=-2.96,
+            start_date="2020-01-01", end_date="2020-01-31",
+        )
+
+    assert len(responses.calls) == 1
+
+
+@responses.activate
+def test_a_server_error_propagates_without_retrying() -> None:
+    """No retry for a failure mode the probe never observed."""
+    responses.get(FORECAST_HOST, json={}, status=500)
+
+    with pytest.raises(requests.HTTPError):
+        OpenMeteoClient().fetch_hourly(
+            FORECAST_HOST, latitude=53.43, longitude=-2.96,
+            start_date="2026-09-01", end_date="2026-09-01",
+        )
+
+    assert len(responses.calls) == 1
