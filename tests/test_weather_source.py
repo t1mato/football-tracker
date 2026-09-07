@@ -9,8 +9,10 @@ import responses
 
 from football_pipeline.weather_source import (
     FINISHED_STATUSES,
+    MatchNeedingWeather,
     OpenMeteoClient,
     OutOfRangeError,
+    iter_match_weather,
     select_matches_needing_weather,
 )
 
@@ -237,3 +239,85 @@ def test_a_server_error_propagates_without_retrying() -> None:
         )
 
     assert len(responses.calls) == 1
+
+
+ANFIELD_SEP_BODY = {
+    "hourly": {
+        "time": ["2026-09-01T14:00", "2026-09-01T15:00", "2026-09-20T12:00"],
+        "temperature_2m": [16.0, 16.5, 18.0],
+        "precipitation": [0.0, 0.2, 0.0],
+        "wind_speed_10m": [12.0, 13.0, 9.0],
+    }
+}
+
+
+@responses.activate
+def test_one_finished_and_one_upcoming_match_hit_different_endpoints() -> None:
+    responses.get(ARCHIVE_HOST, json=ANFIELD_SEP_BODY, status=200)
+    responses.get(FORECAST_HOST, json=ANFIELD_SEP_BODY, status=200)
+
+    matches = [
+        MatchNeedingWeather(1, "anfield", "2026-09-01", 15, "FINISHED", 53.43, -2.96),
+        MatchNeedingWeather(2, "anfield", "2026-09-20", 12, "TIMED", 53.43, -2.96),
+    ]
+
+    rows = list(iter_match_weather(OpenMeteoClient(), matches))
+
+    assert len(responses.calls) == 2
+    assert {r["match_id"] for r in rows} == {1, 2}
+    row_1 = next(r for r in rows if r["match_id"] == 1)
+    assert row_1["data_type"] == "actual"
+    assert row_1["temperature_2m"] == 16.5
+    assert row_1["venue_key"] == "anfield"
+    row_2 = next(r for r in rows if r["match_id"] == 2)
+    assert row_2["data_type"] == "forecast"
+    assert row_2["temperature_2m"] == 18.0
+
+
+@responses.activate
+def test_two_matches_at_the_same_venue_share_one_call() -> None:
+    responses.get(ARCHIVE_HOST, json=ANFIELD_SEP_BODY, status=200)
+
+    matches = [
+        MatchNeedingWeather(1, "anfield", "2026-09-01", 14, "FINISHED", 53.43, -2.96),
+        MatchNeedingWeather(2, "anfield", "2026-09-01", 15, "FINISHED", 53.43, -2.96),
+    ]
+
+    rows = list(iter_match_weather(OpenMeteoClient(), matches))
+
+    assert len(responses.calls) == 1
+    assert {r["match_id"] for r in rows} == {1, 2}
+
+
+@responses.activate
+def test_a_match_whose_hour_is_missing_from_the_response_is_skipped() -> None:
+    """Clipping (Task 2) can shrink the range below what a match needs --
+    that match is silently absent this run, not an error.
+    """
+    responses.get(ARCHIVE_HOST, json={"hourly": {
+        "time": ["2026-09-01T14:00"], "temperature_2m": [16.0],
+        "precipitation": [0.0], "wind_speed_10m": [12.0],
+    }}, status=200)
+
+    matches = [MatchNeedingWeather(1, "anfield", "2026-09-01", 23, "FINISHED", 53.43, -2.96)]
+
+    rows = list(iter_match_weather(OpenMeteoClient(), matches))
+
+    assert rows == []
+
+
+@responses.activate
+def test_an_out_of_range_venue_is_skipped_without_failing_the_run() -> None:
+    for _ in range(2):
+        responses.get(
+            ARCHIVE_HOST,
+            json={"error": True, "reason": "Parameter 'start_date' is out of "
+                                            "allowed range from 2026-06-06 to 2026-09-22"},
+            status=400,
+        )
+
+    matches = [MatchNeedingWeather(1, "anfield", "2020-01-01", 12, "FINISHED", 53.43, -2.96)]
+
+    rows = list(iter_match_weather(OpenMeteoClient(), matches))
+
+    assert rows == []

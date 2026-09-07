@@ -6,8 +6,11 @@ been played. Read docs/specs/2026-09-07-weather-ingestion-design.md before
 changing anything here; it records why each decision was made.
 """
 
+import logging
 import re
+from collections.abc import Iterator
 from dataclasses import dataclass
+from itertools import groupby
 from pathlib import Path
 from typing import Any
 
@@ -16,7 +19,12 @@ import requests
 
 FINISHED_STATUSES = frozenset({"FINISHED", "AWARDED"})
 
+FORECAST_HOST = "https://api.open-meteo.com/v1/forecast"
+ARCHIVE_HOST = "https://archive-api.open-meteo.com/v1/archive"
+
 HOURLY_VARS = "temperature_2m,precipitation,wind_speed_10m"
+
+logger = logging.getLogger(__name__)
 
 # Matches the real probe's error shape: "Parameter 'end_date' is out of
 # allowed range from 2026-06-06 to 2026-09-22".
@@ -164,3 +172,59 @@ def _clip_to_allowed_range(
     if new_start > new_end:
         return None
     return new_start, new_end
+
+
+def _hour_key(date_str: str, hour: int) -> str:
+    return f"{date_str}T{hour:02d}:00"
+
+
+def iter_match_weather(
+    client: OpenMeteoClient, matches: list[MatchNeedingWeather]
+) -> Iterator[dict[str, Any]]:
+    """One row per match. One HTTP call per venue per endpoint, not per match.
+
+    Groups by (endpoint, venue) so two matches sharing a venue -- and, once
+    finished-vs-upcoming is decided, the same endpoint -- cost one call
+    between them, scoped to that venue's own min/max needed date.
+    """
+
+    def group_key(m: MatchNeedingWeather) -> tuple[bool, str]:
+        return (m.status in FINISHED_STATUSES, m.venue_key)
+
+    by_group = sorted(matches, key=group_key)
+    for (is_finished, venue_key), group_iter in groupby(by_group, key=group_key):
+        group = list(group_iter)
+        host = ARCHIVE_HOST if is_finished else FORECAST_HOST
+        data_type = "actual" if is_finished else "forecast"
+        start_date = min(m.weather_date for m in group)
+        end_date = max(m.weather_date for m in group)
+
+        try:
+            body = client.fetch_hourly(
+                host,
+                latitude=group[0].latitude,
+                longitude=group[0].longitude,
+                start_date=start_date,
+                end_date=end_date,
+            )
+        except OutOfRangeError:
+            logger.info(
+                "skipping %s: no valid date overlap for %s..%s", venue_key, start_date, end_date
+            )
+            continue
+
+        time_index = {t: i for i, t in enumerate(body["hourly"]["time"])}
+        for m in group:
+            idx = time_index.get(_hour_key(m.weather_date, m.weather_hour))
+            if idx is None:
+                continue
+            yield {
+                "match_id": m.match_id,
+                "venue_key": m.venue_key,
+                "weather_date": m.weather_date,
+                "weather_hour": m.weather_hour,
+                "temperature_2m": body["hourly"]["temperature_2m"][idx],
+                "precipitation": body["hourly"]["precipitation"][idx],
+                "wind_speed_10m": body["hourly"]["wind_speed_10m"][idx],
+                "data_type": data_type,
+            }
