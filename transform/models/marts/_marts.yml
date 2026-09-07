@@ -216,6 +216,29 @@ models:
       - name: position
         tests: [not_null]
 
+  - name: mart_team_form
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [team_id, competition_code]
+    columns:
+      - name: team_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: competition_code
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
+      - name: last_5_results
+        tests: [not_null]
+
 unit_tests:
   - name: finished_match_produces_correct_result_and_score_swap
     description: >
