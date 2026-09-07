@@ -184,6 +184,38 @@ models:
                 to: ref('dim_teams')
                 field: team_id
 
+  - name: mart_standings_over_time
+    tests:
+      - dbt_utils.unique_combination_of_columns:
+          arguments:
+            combination_of_columns: [team_id, competition_code, season_id, group_name, matchday]
+    columns:
+      - name: team_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_teams')
+                field: team_id
+      - name: competition_code
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_competitions')
+                field: competition_code
+      - name: season_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_seasons')
+                field: season_id
+      - name: matchday
+        tests: [not_null]
+      - name: position
+        tests: [not_null]
+
 unit_tests:
   - name: finished_match_produces_correct_result_and_score_swap
     description: >

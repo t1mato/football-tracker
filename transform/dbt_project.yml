@@ -39,6 +39,17 @@ vars:
   date_spine_start: '2020-01-01'
   date_spine_end_exclusive: '2031-01-01'
 
+  # Domestic leagues are entirely REGULAR_SEASON -- no knockout stage
+  # exists there at all. CL alone needs this: GROUP_STAGE (2023/24) and
+  # LEAGUE_STAGE (2024/25+) both have a real table to rank a position
+  # within; LAST_16/QUARTER_FINALS/SEMI_FINALS/FINAL do not -- matchday
+  # resets to 1-2 every knockout round (verified 2026-09-04), so there is
+  # no "position after matchday N" to compute there at all.
+  standings_phase_stages:
+    - REGULAR_SEASON
+    - GROUP_STAGE
+    - LEAGUE_STAGE
+
 models:
   football_analytics:
     staging:
