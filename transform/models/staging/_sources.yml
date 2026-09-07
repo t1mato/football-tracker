@@ -19,6 +19,25 @@ sources:
             data_type: bigint
           - name: area_name
             data_type: varchar
+      - name: match_weather
+        columns:
+          - name: match_id
+            data_type: bigint
+            tests: [unique, not_null]
+          - name: venue_key
+            data_type: varchar
+          - name: weather_date
+            data_type: varchar
+          - name: weather_hour
+            data_type: bigint
+          - name: temperature_2m
+            data_type: double
+          - name: precipitation
+            data_type: double
+          - name: wind_speed_10m
+            data_type: double
+          - name: data_type
+            data_type: varchar
       - name: matches
         columns:
           - name: id

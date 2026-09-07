@@ -184,6 +184,20 @@ models:
                 to: ref('dim_teams')
                 field: team_id
 
+  - name: fct_match_weather
+    columns:
+      - name: match_id
+        tests: [unique, not_null]
+      - name: data_type
+        # No `where` needed: NULL NOT IN (...) evaluates to NULL under SQL's
+        # three-valued logic, which the test's WHERE clause already excludes
+        # -- same reasoning as fct_team_matches.result, and null here is
+        # equally legitimate (no weather row yet).
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['forecast', 'actual']
+
   - name: mart_standings_over_time
     tests:
       - dbt_utils.unique_combination_of_columns:
@@ -449,6 +463,38 @@ unit_tests:
       rows:
         - {team_id: 901, competition_code: 'PL', current_win_streak: 0,
            current_unbeaten_streak: 0, longest_win_streak: 3, longest_unbeaten_streak: 3}
+
+  - name: a_confirmed_match_with_a_weather_row_surfaces_it
+    model: fct_match_weather
+    given:
+      - input: ref('fct_matches')
+        rows:
+          - {match_id: 1, venue_key: 'v1', kickoff_time_confirmed: true}
+      - input: ref('stg_match_weather')
+        rows:
+          - {match_id: 1, venue_key: 'v1', weather_date: '2026-09-01', weather_hour: 15,
+             temperature_2m: 18.5, precipitation: 0.0, wind_speed_10m: 12.0, data_type: 'actual'}
+    expect:
+      rows:
+        - {match_id: 1, kickoff_time_confirmed: true, temperature_2m: 18.5, data_type: 'actual'}
+
+  - name: an_unconfirmed_kickoff_has_null_weather_not_an_error
+    description: >
+      Matches with kickoff_time_confirmed=false never get ingested by
+      weather_source -- there is no hour to fetch weather for -- so no row
+      ever exists for them in stg_match_weather. This must not drop the
+      match from fct_match_weather: the grain is one row per match, not one
+      row per match with weather.
+    model: fct_match_weather
+    given:
+      - input: ref('fct_matches')
+        rows:
+          - {match_id: 2, venue_key: 'v1', kickoff_time_confirmed: false}
+      - input: ref('stg_match_weather')
+        rows: []
+    expect:
+      rows:
+        - {match_id: 2, kickoff_time_confirmed: false, temperature_2m: null, data_type: null}
 
   - name: last_five_reads_oldest_to_newest_and_drops_the_oldest_match
     description: >

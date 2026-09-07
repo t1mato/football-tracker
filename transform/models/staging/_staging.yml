@@ -113,6 +113,16 @@ models:
       - name: venue_name
         tests: [unique, not_null]
 
+  - name: stg_match_weather
+    columns:
+      - name: match_id
+        tests: [unique, not_null]
+      - name: data_type
+        tests:
+          - accepted_values:
+              arguments:
+                values: ['forecast', 'actual']
+
 
 unit_tests:
   - name: coerces_a_defective_status_and_keeps_the_original
