@@ -339,6 +339,82 @@ def get_team_position_history(
     ).df()
 
 
+def get_head_to_head(
+    con: duckdb.DuckDBPyConnection, team_1_id: int, team_2_id: int
+) -> pd.Series | None:
+    """mart_head_to_head stores one row per unordered pair, keyed
+    team_a_id = least(...), team_b_id = greatest(...) (CLAUDE.md's
+    pairwise-model convention) -- an ordering the caller's two team ids
+    have no relationship to. Looks the row up via least/greatest, then
+    remaps team_a_*/team_b_* back onto team_1_*/team_2_* in whichever
+    order the caller actually passed them in, so the result always
+    reflects "team_1's" record regardless of team_1_id's numeric value
+    relative to team_2_id.
+
+    None when the pair has no row at all -- two teams that have never
+    played each other is a real state, not an error.
+    """
+    df = con.execute(
+        """
+        select team_a_id, team_a_wins, team_b_wins, draws,
+               matches_played, team_a_goals, team_b_goals
+        from mart_head_to_head
+        where team_a_id = least(?, ?) and team_b_id = greatest(?, ?)
+        """,
+        [team_1_id, team_2_id, team_1_id, team_2_id],
+    ).df()
+    if df.empty:
+        return None
+    row = df.iloc[0]
+    if team_1_id == row["team_a_id"]:
+        team_1_wins, team_2_wins = row["team_a_wins"], row["team_b_wins"]
+        team_1_goals, team_2_goals = row["team_a_goals"], row["team_b_goals"]
+    else:
+        team_1_wins, team_2_wins = row["team_b_wins"], row["team_a_wins"]
+        team_1_goals, team_2_goals = row["team_b_goals"], row["team_a_goals"]
+    return pd.Series(
+        {
+            "team_1_wins": team_1_wins,
+            "team_2_wins": team_2_wins,
+            "draws": row["draws"],
+            "matches_played": row["matches_played"],
+            "team_1_goals": team_1_goals,
+            "team_2_goals": team_2_goals,
+        }
+    )
+
+
+def get_head_to_head_matches(
+    con: duckdb.DuckDBPyConnection, team_1_id: int, team_2_id: int
+) -> pd.DataFrame:
+    """Every FINISHED/AWARDED match between the pair, either team home,
+    newest first, no cap. Same status filter mart_head_to_head.sql uses,
+    so this list and that aggregate always agree on which matches count
+    -- a SCHEDULED fixture between the two showing up here (or an
+    AWARDED one missing from it) would make the two panels on the page
+    disagree with each other.
+
+    May legitimately be empty -- reachable only when get_head_to_head
+    also returns None, since both read the same underlying match set.
+    """
+    return con.execute(
+        """
+        select f.kickoff_utc, f.kickoff_time_confirmed, c.competition_name,
+               ht.team_name as home_team_name, aw.team_name as away_team_name,
+               f.full_time_home, f.full_time_away
+        from fct_matches f
+        join dim_teams ht on f.home_team_id = ht.team_id
+        join dim_teams aw on f.away_team_id = aw.team_id
+        join dim_competitions c on f.competition_code = c.competition_code
+        where f.status in ('FINISHED', 'AWARDED')
+          and ((f.home_team_id = ? and f.away_team_id = ?)
+            or (f.home_team_id = ? and f.away_team_id = ?))
+        order by f.kickoff_utc desc
+        """,
+        [team_1_id, team_2_id, team_2_id, team_1_id],
+    ).df()
+
+
 def get_match_detail(
     con: duckdb.DuckDBPyConnection, match_id: int
 ) -> pd.Series | None:

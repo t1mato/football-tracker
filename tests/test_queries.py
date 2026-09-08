@@ -18,6 +18,8 @@ from app.queries import (
     get_competitions,
     get_current_season_id,
     get_current_teams,
+    get_head_to_head,
+    get_head_to_head_matches,
     get_match_detail,
     get_matches_for_picker,
     get_recent_matches,
@@ -692,3 +694,114 @@ def test_top_scorers_returns_the_expected_columns(tmp_path: Path) -> None:
         "rank", "player_name", "team_name", "goals",
         "assists", "played_matches", "penalties",
     ]
+
+
+def build_head_to_head_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.fct_matches (
+            match_id bigint, competition_code varchar, season_id integer,
+            kickoff_utc timestamp, kickoff_time_confirmed boolean, status varchar,
+            home_team_id bigint, away_team_id bigint,
+            full_time_home integer, full_time_away integer
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar);
+        create table main.dim_competitions (
+            competition_code varchar, competition_name varchar
+        );
+        create table main.mart_head_to_head (
+            team_a_id bigint, team_b_id bigint, matches_played bigint,
+            team_a_wins bigint, team_b_wins bigint, draws bigint,
+            team_a_goals bigint, team_b_goals bigint
+        );
+        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B'), (3, 'Team C');
+        insert into main.dim_competitions values
+            ('PL', 'Premier League'), ('FAC', 'FA Cup')
+    """)
+    con.close()
+    return db_path
+
+
+def test_head_to_head_remaps_the_aggregate_regardless_of_argument_order(
+    tmp_path: Path,
+) -> None:
+    """mart_head_to_head keys team_a_id = least(1, 2) = 1, team_b_id = 2 --
+    an ordering the page's two selectboxes have no relationship to. This
+    proves get_head_to_head(con, 1, 2) and get_head_to_head(con, 2, 1)
+    describe the same real-world record, just with team_1_*/team_2_*
+    swapped, not two different answers.
+    """
+    db_path = build_head_to_head_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_head_to_head values (1, 2, 5, 3, 1, 1, 9, 4)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    forward = get_head_to_head(con, 1, 2)
+    backward = get_head_to_head(con, 2, 1)
+
+    assert forward is not None
+    assert backward is not None
+    assert (forward["team_1_wins"], forward["team_2_wins"]) == (3, 1)
+    assert (forward["team_1_goals"], forward["team_2_goals"]) == (9, 4)
+    assert (backward["team_1_wins"], backward["team_2_wins"]) == (1, 3)
+    assert (backward["team_1_goals"], backward["team_2_goals"]) == (4, 9)
+    assert forward["draws"] == backward["draws"] == 1
+    assert forward["matches_played"] == backward["matches_played"] == 5
+
+
+def test_head_to_head_returns_none_when_the_pair_never_met(tmp_path: Path) -> None:
+    con = duckdb.connect(str(build_head_to_head_db(tmp_path)), read_only=True)
+
+    assert get_head_to_head(con, 1, 3) is None
+
+
+def test_head_to_head_matches_finds_meetings_regardless_of_home_away(
+    tmp_path: Path,
+) -> None:
+    db_path = build_head_to_head_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2401, '2024-09-01 15:00:00', true, 'FINISHED', 1, 2, 2, 1),
+            (2, 'FAC', 2501, '2025-03-01 15:00:00', true, 'FINISHED', 2, 1, 0, 3)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_head_to_head_matches(con, 1, 2)
+
+    # Newest first (match 2 before match 1), and found regardless of which
+    # team was recorded as home in a given fixture.
+    assert list(rows["home_team_name"]) == ["Team B", "Team A"]
+    assert list(rows["competition_name"]) == ["FA Cup", "Premier League"]
+
+
+def test_head_to_head_matches_excludes_unfinished_fixtures(tmp_path: Path) -> None:
+    db_path = build_head_to_head_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2401, '2024-09-01 15:00:00', true, 'FINISHED', 1, 2, 2, 1),
+            (2, 'PL', 2502, '2026-09-20 15:00:00', true, 'SCHEDULED', 1, 2, null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_head_to_head_matches(con, 1, 2)
+
+    assert len(rows) == 1
+    assert rows.iloc[0]["full_time_home"] == 2
+
+
+def test_head_to_head_matches_is_empty_when_the_pair_never_met(
+    tmp_path: Path,
+) -> None:
+    con = duckdb.connect(str(build_head_to_head_db(tmp_path)), read_only=True)
+
+    rows = get_head_to_head_matches(con, 1, 3)
+
+    assert rows.empty
