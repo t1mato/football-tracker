@@ -27,6 +27,7 @@ from app.queries import (
     get_recent_matches,
     get_reconstructed_final_standings,
     get_standings,
+    get_streaks,
     get_team_competitions,
     get_team_form,
     get_team_position_history,
@@ -1061,5 +1062,64 @@ def test_reconstructed_standings_is_empty_when_the_season_has_no_data(
     con = duckdb.connect(str(build_season_archive_db(tmp_path)), read_only=True)
 
     rows = get_reconstructed_final_standings(con, "PL", 2403)
+
+    assert rows.empty
+
+
+def build_streaks_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.dim_teams (team_id bigint, team_name varchar);
+        create table main.mart_streaks (
+            team_id bigint, competition_code varchar,
+            current_win_streak bigint, current_unbeaten_streak bigint,
+            longest_win_streak bigint, longest_unbeaten_streak bigint
+        );
+        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B'), (3, 'Team C')
+    """)
+    con.close()
+    return db_path
+
+
+def test_streaks_returns_only_the_requested_competition(tmp_path: Path) -> None:
+    db_path = build_streaks_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_streaks values
+            (1, 'PL', 3, 5, 8, 10),
+            (2, 'CL', 1, 1, 4, 4)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_streaks(con, "PL")
+
+    assert list(rows["team_name"]) == ["Team A"]
+
+
+def test_streaks_passes_through_all_four_stats_unchanged(tmp_path: Path) -> None:
+    db_path = build_streaks_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_streaks values
+            (1, 'PL', 3, 5, 8, 10)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_streaks(con, "PL")
+
+    row = rows.iloc[0]
+    assert row["current_win_streak"] == 3
+    assert row["current_unbeaten_streak"] == 5
+    assert row["longest_win_streak"] == 8
+    assert row["longest_unbeaten_streak"] == 10
+
+
+def test_streaks_is_empty_when_the_competition_has_no_data(tmp_path: Path) -> None:
+    con = duckdb.connect(str(build_streaks_db(tmp_path)), read_only=True)
+
+    rows = get_streaks(con, "PL")
 
     assert rows.empty

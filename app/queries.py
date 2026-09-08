@@ -518,6 +518,37 @@ def get_reconstructed_final_standings(
     ).df()
 
 
+def get_streaks(con: duckdb.DuckDBPyConnection, competition_code: str) -> pd.DataFrame:
+    """mart_streaks is grained at (team_id, competition_code) with no
+    season_id -- deliberately, not an oversight (see the design doc):
+    current_win_streak/current_unbeaten_streak must span a season
+    boundary (a real streak doesn't reset when the calendar rolls over),
+    and longest_win_streak/longest_unbeaten_streak are meant to be
+    all-time records across the whole backfilled window, the same
+    "all-time, not season-scoped" choice already made for
+    mart_head_to_head. All four stat columns pass through unchanged --
+    no recomputation, no filtering to only teams currently on a streak.
+
+    May legitimately be empty -- a competition with no decided matches
+    in mart_streaks (not reachable for any competition in today's
+    backfill) gets a message, not a broken table.
+    """
+    return con.execute(
+        """
+        select
+            t.team_name,
+            s.current_win_streak,
+            s.current_unbeaten_streak,
+            s.longest_win_streak,
+            s.longest_unbeaten_streak
+        from mart_streaks s
+        join dim_teams t on s.team_id = t.team_id
+        where s.competition_code = ?
+        """,
+        [competition_code],
+    ).df()
+
+
 def get_match_detail(
     con: duckdb.DuckDBPyConnection, match_id: int
 ) -> pd.Series | None:
