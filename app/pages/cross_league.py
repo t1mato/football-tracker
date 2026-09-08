@@ -13,21 +13,23 @@ con = get_connection()
 stats = get_cross_league_stats(con)
 
 display = stats.copy()
-display["Avg Goals/Match"] = display["avg_goals_per_match"].round(1)
-display["Avg Goal Margin"] = display["avg_goal_margin"].round(1)
+display["Matches Played"] = display["decided_matches"].apply(
+    lambda n: str(int(n)) if pd.notna(n) else ""
+)
+display["Avg Goals/Match"] = display["avg_goals_per_match"].apply(
+    lambda v: f"{v:.1f}" if pd.notna(v) else ""
+)
+display["Avg Goal Margin"] = display["avg_goal_margin"].apply(
+    lambda v: f"{v:.1f}" if pd.notna(v) else ""
+)
 display["Home Win %"] = display["home_win_rate"].apply(
-    lambda rate: f"{rate:.0%}" if pd.notna(rate) else None
+    lambda rate: f"{rate:.0%}" if pd.notna(rate) else ""
 )
 
 st.dataframe(
     display[
-        ["competition_name", "decided_matches", "Avg Goals/Match", "Avg Goal Margin", "Home Win %"]
-    ].rename(
-        columns={
-            "competition_name": "Competition",
-            "decided_matches": "Matches Played",
-        }
-    ),
+        ["competition_name", "Matches Played", "Avg Goals/Match", "Avg Goal Margin", "Home Win %"]
+    ].rename(columns={"competition_name": "Competition"}),
     hide_index=True,
 )
 st.caption(
