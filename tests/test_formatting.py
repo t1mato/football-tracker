@@ -8,7 +8,7 @@ tests here rather than relying on manual app verification.
 
 import pandas as pd
 
-from app.formatting import format_kickoff, format_score, match_display
+from app.formatting import format_kickoff, format_score, format_weather, match_display
 
 
 def test_a_confirmed_kickoff_renders_date_and_time_with_utc_suffix() -> None:
@@ -114,3 +114,27 @@ def test_format_score_handles_a_null_away_score() -> None:
     """
     away = pd.array([None], dtype="Int64")[0]
     assert format_score(2, away) == ""
+
+
+def test_format_weather_labels_an_actual_reading() -> None:
+    result = format_weather(18.5, 0.0, 12.0, "actual")
+
+    assert "Actual" in result
+    assert "18" in result
+    assert "12" in result
+
+
+def test_format_weather_labels_a_forecast_reading() -> None:
+    result = format_weather(20.0, 1.5, 8.0, "forecast")
+
+    assert "Forecast" in result
+
+
+def test_format_weather_handles_no_data_type_without_crashing() -> None:
+    """A LEFT JOIN to fct_match_weather with no matching row -- all four
+    columns null together, since DuckDB fills every column of a missing
+    row with NULL, not just some of them.
+    """
+    result = format_weather(None, None, None, None)
+
+    assert "no weather" in result.lower()

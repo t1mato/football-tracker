@@ -31,6 +31,23 @@ def format_kickoff(row: pd.Series) -> str:
     return row["kickoff_utc"].strftime("%Y-%m-%d %H:%M UTC")
 
 
+def format_weather(
+    temperature_2m: object, precipitation: object, wind_speed_10m: object, data_type: object
+) -> str:
+    """Branches on data_type being null, the same way format_kickoff branches
+    on kickoff_time_confirmed -- a LEFT JOIN with no matching row leaves
+    every weather column null together, so checking data_type alone is
+    enough to detect "no reading yet" without checking all four columns.
+    """
+    if pd.isna(data_type):
+        return "No weather data available for this match yet."
+    label = "Forecast" if data_type == "forecast" else "Actual"
+    return (
+        f"{label}: {temperature_2m:.0f}°C, "
+        f"{precipitation:.1f}mm precipitation, {wind_speed_10m:.0f} km/h wind"
+    )
+
+
 def match_display(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["Kickoff", "Home", "Score", "Away"])
