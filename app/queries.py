@@ -125,9 +125,10 @@ def get_standings(
         from fct_standings_snapshot f
         join dim_teams t on f.team_id = t.team_id
         where f.competition_code = ? and f.season_id = ? and f.snapshot_date = ?
+          and f.stage = ? and f.table_type = 'TOTAL'
         order by f.position
         """,
-        [competition_code, season_id, latest_snapshot_date],
+        [competition_code, season_id, latest_snapshot_date, stage],
     ).df()
     return StandingsResult(table=table, message=None)
 

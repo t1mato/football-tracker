@@ -96,6 +96,36 @@ def test_a_normal_league_phase_returns_the_table_ordered_by_position(tmp_path: P
     assert list(result.table["position"]) == [1, 2]
 
 
+def test_only_the_latest_snapshot_date_is_returned(tmp_path: Path) -> None:
+    """get_standings' most load-bearing behavior after the stage branch:
+    show the CURRENT table only. A second, earlier snapshot_date with
+    different positions must not leak into the result -- this would still
+    pass with the snapshot_date filter deleted from the table query if this
+    fixture only had one snapshot_date (as the "normal league phase" test
+    above does), so this test exists specifically to catch that regression.
+    """
+    db_path = build_standings_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B');
+        insert into main.fct_standings_snapshot values
+            ('PL', 2502, 1, '2026-08-31', 'REGULAR_SEASON', 'TOTAL', 2, 2, 1,0,1, 3,3,4,-1, 'WL'),
+            ('PL', 2502, 2, '2026-08-31', 'REGULAR_SEASON', 'TOTAL', 1, 2, 2,0,0, 6,4,1,3, 'WW'),
+            ('PL', 2502, 2, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 2, 3, 2,0,1, 6,5,3,2, 'WWL'),
+            ('PL', 2502, 1, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 1, 3, 3,0,0, 9,7,1,6, 'WWW')
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    result = get_standings(con, "PL", 2502)
+
+    assert result.table is not None
+    assert len(result.table) == 2
+    assert list(result.table["team_name"]) == ["Team A", "Team B"]
+    assert list(result.table["position"]) == [1, 2]
+    assert list(result.table["points"]) == [9, 6]
+
+
 def test_no_rows_at_all_returns_a_message_not_an_empty_table(tmp_path: Path) -> None:
     con = duckdb.connect(str(build_standings_db(tmp_path)), read_only=True)
 
