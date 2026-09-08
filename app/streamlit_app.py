@@ -44,6 +44,8 @@ def _format_kickoff(row: pd.Series) -> str:
 
 
 def _match_display(df: pd.DataFrame) -> pd.DataFrame:
+    if df.empty:
+        return pd.DataFrame(columns=["Kickoff", "Home", "Score", "Away"])
     out = df.copy()
     out["Kickoff"] = out.apply(_format_kickoff, axis=1)
     out["Score"] = out.apply(
