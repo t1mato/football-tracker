@@ -48,7 +48,7 @@ def _match_display(df: pd.DataFrame) -> pd.DataFrame:
     out["Kickoff"] = out.apply(_format_kickoff, axis=1)
     out["Score"] = out.apply(
         lambda r: f"{int(r['full_time_home'])}-{int(r['full_time_away'])}"
-        if r["full_time_home"] is not None
+        if pd.notna(r["full_time_home"])
         else "",
         axis=1,
     )
