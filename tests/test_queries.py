@@ -408,7 +408,8 @@ def test_team_competitions_covers_every_current_competition_for_one_team(
         insert into main.fct_matches values
             (1, 'PL', 2502, 1, 2),
             (2, 'CL', 2601, 1, 3),
-            (3, 'PL', 2502, 2, 3)
+            (3, 'PL', 2502, 2, 3),
+            (4, 'PL', 2502, 3, 1)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
@@ -416,5 +417,9 @@ def test_team_competitions_covers_every_current_competition_for_one_team(
     rows = get_team_competitions(con, 1)
 
     assert set(rows["competition_code"]) == {"PL", "CL"}
-    # team_id=1 is not in match 3, so this must not produce a duplicate PL row
+    # Team 1 appears in TWO PL matches (match 1 as home_team_id, match 4 as
+    # away_team_id), but DISTINCT deduplicates it to exactly one PL row.
+    # This verifies that DISTINCT is load-bearing.
     assert len(rows) == 2
+    pl_rows = rows[rows["competition_code"] == "PL"]
+    assert len(pl_rows) == 1
