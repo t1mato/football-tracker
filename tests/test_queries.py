@@ -616,11 +616,12 @@ def test_top_scorers_is_empty_when_the_competition_has_no_scorers_yet(
     assert rows.empty
 
 
-def test_top_scorers_sorts_null_assists_last_not_first(tmp_path: Path) -> None:
-    """assists is frequently NULL in the real data (not every scorer has a
-    tracked assist count) -- NULLS LAST must be explicit, not left to
-    whichever warehouse's default happens to apply, since DuckDB and
-    BigQuery are not guaranteed to agree on NULL ordering under DESC.
+def test_top_scorers_treats_null_assists_as_zero(tmp_path: Path) -> None:
+    """assists is frequently NULL in the real data -- confirmed via a live
+    football-data.org API call that NULL is the API's own encoding of
+    zero assists, not "unknown" or "not tracked". coalesce(assists, 0)
+    means a NULL-assists player ranks (and displays) exactly as a
+    zero-assists player would, not as an unranked/blank outlier.
     """
     db_path = build_scorers_db(tmp_path)
     con = duckdb.connect(str(db_path))
@@ -634,8 +635,60 @@ def test_top_scorers_sorts_null_assists_last_not_first(tmp_path: Path) -> None:
 
     rows = get_top_scorers(con, "PL", 2502)
 
-    # Tied on goals (8). Player B has 1 assist, Player A has NULL assists.
-    # NULLS LAST means the null-assists player sorts after the real value,
-    # not before it (which is what NULLS FIRST -- a real possible default
-    # on some warehouses -- would do instead).
+    # Tied on goals (8). Player B has 1 assist, Player A has NULL assists
+    # -- coalesced to 0, so B (1 > 0) ranks above A, same relative order
+    # NULLS LAST used to produce, but now via an explicit, portable value
+    # rather than an unverified cross-database NULL-ordering default.
     assert list(rows["player_name"]) == ["Player B", "Player A"]
+    a_row = rows[rows["player_name"] == "Player A"].iloc[0]
+    assert a_row["assists"] == 0
+    assert pd.notna(a_row["assists"])
+
+
+def test_top_scorers_does_not_leak_a_different_season_or_competition(
+    tmp_path: Path,
+) -> None:
+    """rank() is computed over the filtered set, so a broken
+    competition_code/season_id scope doesn't just add extra rows -- it
+    silently corrupts every rank value with cross-season/cross-competition
+    data. Deleting the WHERE clause (or just its season_id half) would
+    make every OTHER get_top_scorers test in this file still pass, since
+    they all insert rows for only one (competition_code, season_id) pair
+    -- this test exists specifically to catch that regression.
+    """
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 0),
+            ('PL', 2403, 2, 'Player B', 11, 'Team Y', 10, 20, 5, 0),
+            ('SA', 2502, 3, 'Player C', 12, 'Team Z', 10, 15, 3, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_scorers(con, "PL", 2502)
+
+    # Player B (a different PL season) and Player C (a different
+    # competition's same season_id) must both be excluded -- if either
+    # leaked in, Player A (8 goals) would not be the lone, rank-1 row.
+    assert list(rows["player_name"]) == ["Player A"]
+    assert list(rows["rank"]) == [1]
+
+
+def test_top_scorers_returns_the_expected_columns(tmp_path: Path) -> None:
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_scorers(con, "PL", 2502)
+
+    assert list(rows.columns) == [
+        "rank", "player_name", "team_name", "goals",
+        "assists", "played_matches", "penalties",
+    ]

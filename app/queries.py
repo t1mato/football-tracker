@@ -213,24 +213,38 @@ def get_top_scorers(
     current season has no counted scorer rows yet is a real state, not an
     error.
 
-    NULLS LAST is explicit on every ORDER BY key rather than relying on
-    DuckDB's default (confirmed empirically to already be NULLS LAST for
-    both ASC and DESC) -- BigQuery's default was not verified from this
-    environment, and assists/penalties are frequently null in the real data,
-    so this shouldn't be left to an unverified cross-database default.
+    assists/penalties coalesce NULL to 0 -- confirmed via a live
+    football-data.org API call (not guessed) that the source JSON sends
+    an explicit null when a player has no assists/penalties, not an
+    omitted field and not an explicit 0. Rendering that as a blank cell
+    reads as "unknown"; it means zero. This also removes every null this
+    query could see feeding rank()'s ORDER BY (goals and played_matches
+    are never null in the real data), so no NULLS LAST/FIRST handling is
+    needed here at all -- a prior fix relied on NULLS LAST inside the
+    window's own ORDER BY, which BigQuery's documented window-function
+    grammar does not appear to support (only top-level ORDER BY does);
+    coalescing removes the need for it entirely rather than leaving an
+    unverified, possibly-nonportable clause in place unused.
+
+    The outer ORDER BY breaks ties on player_name for a deterministic
+    display order -- DuckDB does not guarantee scan order is stable
+    across reruns, and two players sharing a rank would otherwise render
+    in an arbitrary order (same class of concern get_standings' own
+    ORDER BY comment already flags).
     """
     return con.execute(
         """
         select
             rank() over (
-                order by goals desc nulls last,
-                         assists desc nulls last,
-                         played_matches asc nulls last
+                order by goals desc, coalesce(assists, 0) desc, played_matches asc
             ) as rank,
-            player_name, team_name, goals, assists, played_matches, penalties
+            player_name, team_name, goals,
+            coalesce(assists, 0) as assists,
+            played_matches,
+            coalesce(penalties, 0) as penalties
         from fct_scorers
         where competition_code = ? and season_id = ?
-        order by rank
+        order by rank, player_name
         """,
         [competition_code, season_id],
     ).df()
