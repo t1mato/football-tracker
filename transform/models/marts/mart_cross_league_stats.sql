@@ -20,7 +20,7 @@ select
     season_id,
     -- case-when, not filter(where ...): BigQuery has no aggregate FILTER
     -- clause and dbt ships no cross-database macro for it.
-    sum(case when status = 'FINISHED' then 1 else 0 end) as finished_matches,
+    cast(sum(case when status = 'FINISHED' then 1 else 0 end) as {{ dbt.type_bigint() }}) as finished_matches,
     -- The true denominator of home_win_rate below (FINISHED + AWARDED,
     -- not FINISHED alone) -- exposed as its own column so a downstream
     -- re-aggregation across seasons can weight home_win_rate correctly.
