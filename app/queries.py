@@ -447,6 +447,77 @@ def get_cross_league_stats(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     ).df()
 
 
+def get_competition_seasons(
+    con: duckdb.DuckDBPyConnection, competition_code: str
+) -> pd.DataFrame:
+    """Every backfilled season for one competition, most recent first --
+    the season picker's source. The page derives a human-readable
+    "2024/25" label from start_date/end_date; season_id itself is an
+    opaque API-assigned integer with no calendar meaning to a reader.
+    """
+    return con.execute(
+        """
+        select season_id, start_date, end_date
+        from dim_seasons
+        where competition_code = ?
+        order by season_id desc
+        """,
+        [competition_code],
+    ).df()
+
+
+def get_reconstructed_final_standings(
+    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """A past season's final table, reconstructed from match results via
+    mart_standings_over_time -- fct_standings_snapshot has zero rows for
+    any past season (the standings endpoint only ever returns a
+    competition's CURRENT table; there was never a historical backfill
+    for it), so this reconstruction is the only source available for a
+    completed season. Same caveat CLAUDE.md already documents for this
+    mart: can drift from the real final table on tiebreakers it has no
+    way to know about (head-to-head record, disciplinary points) and on
+    points deductions.
+
+    group_name is nullable and carried through unchanged -- the old
+    Champions League group-stage format (2023/24 in this backfill) has
+    real distinct groups, so more than one team can legitimately show
+    position = 1 (one per group). Every other season/competition in
+    today's backfill has group_name null throughout. The correlated
+    subquery takes each (competition, season, group)'s own final
+    matchday, matching the mart's own position window (already
+    partitioned by group_name) -- not a global max across groups, which
+    would silently pick one group's last matchday for every group.
+
+    May legitimately be empty -- a season with no mart_standings_over_time
+    rows at all (not reachable for any season in today's backfill, but
+    not guaranteed to stay that way) gets a message, not a broken table.
+    """
+    return con.execute(
+        """
+        select
+            m.group_name,
+            m.position,
+            t.team_name,
+            m.cumulative_points as points,
+            m.cumulative_goal_difference as goal_difference,
+            m.cumulative_goals_for as goals_for
+        from mart_standings_over_time m
+        join dim_teams t on m.team_id = t.team_id
+        where m.competition_code = ? and m.season_id = ?
+          and m.matchday = (
+              select max(m2.matchday)
+              from mart_standings_over_time m2
+              where m2.competition_code = m.competition_code
+                and m2.season_id = m.season_id
+                and m2.group_name is not distinct from m.group_name
+          )
+        order by m.group_name, m.position
+        """,
+        [competition_code, season_id],
+    ).df()
+
+
 def get_match_detail(
     con: duckdb.DuckDBPyConnection, match_id: int
 ) -> pd.Series | None:

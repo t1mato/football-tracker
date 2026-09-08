@@ -15,6 +15,7 @@ import duckdb
 import pandas as pd
 
 from app.queries import (
+    get_competition_seasons,
     get_competitions,
     get_cross_league_stats,
     get_current_season_id,
@@ -24,6 +25,7 @@ from app.queries import (
     get_match_detail,
     get_matches_for_picker,
     get_recent_matches,
+    get_reconstructed_final_standings,
     get_standings,
     get_team_competitions,
     get_team_form,
@@ -916,5 +918,124 @@ def test_head_to_head_matches_is_empty_when_the_pair_never_met(
     con = duckdb.connect(str(build_head_to_head_db(tmp_path)), read_only=True)
 
     rows = get_head_to_head_matches(con, 1, 3)
+
+    assert rows.empty
+
+
+def build_season_archive_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.dim_seasons (
+            season_id bigint, competition_code varchar, start_date date, end_date date
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar);
+        create table main.mart_standings_over_time (
+            team_id bigint, competition_code varchar, season_id bigint, group_name varchar,
+            matchday bigint, cumulative_points bigint, cumulative_goal_difference bigint,
+            cumulative_goals_for bigint, position bigint
+        );
+        insert into main.dim_teams values
+            (1, 'Team A'), (2, 'Team B'), (3, 'Team C'), (4, 'Team D');
+        insert into main.dim_seasons values
+            (2403, 'PL', '2025-08-15', '2026-05-24'),
+            (2502, 'PL', '2026-08-21', '2027-05-30'),
+            (1630, 'CL', '2023-09-19', '2024-06-01')
+    """)
+    con.close()
+    return db_path
+
+
+def test_competition_seasons_returns_only_the_requested_competition_ordered_desc(
+    tmp_path: Path,
+) -> None:
+    con = duckdb.connect(str(build_season_archive_db(tmp_path)), read_only=True)
+
+    rows = get_competition_seasons(con, "PL")
+
+    assert list(rows["season_id"]) == [2502, 2403]
+
+
+def test_reconstructed_standings_returns_only_the_final_matchday(tmp_path: Path) -> None:
+    db_path = build_season_archive_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_standings_over_time values
+            (1, 'PL', 2403, null, 1, 3, 2, 3, 1),
+            (2, 'PL', 2403, null, 1, 0, -2, 1, 2),
+            (1, 'PL', 2403, null, 2, 6, 4, 5, 1),
+            (2, 'PL', 2403, null, 2, 3, -1, 3, 2)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_reconstructed_final_standings(con, "PL", 2403)
+
+    # Only matchday 2's rows (2), not all 4 across both matchdays.
+    assert len(rows) == 2
+    assert set(rows["points"]) == {6, 3}
+
+
+def test_reconstructed_standings_passes_through_the_marts_own_position(
+    tmp_path: Path,
+) -> None:
+    db_path = build_season_archive_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_standings_over_time values
+            (1, 'PL', 2403, null, 1, 5, 0, 5, 1),
+            (2, 'PL', 2403, null, 1, 5, 0, 5, 2)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_reconstructed_final_standings(con, "PL", 2403)
+
+    # Team A and Team B are tied on every stat this query selects (points,
+    # goal_difference, goals_for), but the mart already resolved them to
+    # positions 1 and 2 -- this proves the query passes that through
+    # as-is rather than recomputing its own tie-break that would give
+    # both teams the same rank.
+    positions = dict(zip(rows["team_name"], rows["position"], strict=True))
+    assert positions["Team A"] == 1
+    assert positions["Team B"] == 2
+
+
+def test_reconstructed_standings_keeps_each_groups_own_position_and_final_matchday(
+    tmp_path: Path,
+) -> None:
+    db_path = build_season_archive_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_standings_over_time values
+            (1, 'CL', 1630, 'GROUP_A', 1, 3, 1, 4, 1),
+            (2, 'CL', 1630, 'GROUP_A', 1, 0, -1, 3, 2),
+            (1, 'CL', 1630, 'GROUP_A', 2, 6, 2, 7, 1),
+            (2, 'CL', 1630, 'GROUP_A', 2, 3, 0, 5, 2),
+            (3, 'CL', 1630, 'GROUP_B', 1, 4, 3, 5, 1),
+            (4, 'CL', 1630, 'GROUP_B', 1, 1, -3, 2, 2),
+            (3, 'CL', 1630, 'GROUP_B', 2, 4, 3, 5, 1),
+            (4, 'CL', 1630, 'GROUP_B', 2, 4, 1, 6, 2)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_reconstructed_final_standings(con, "CL", 1630)
+
+    # Both groups' own final matchday (2) is used independently -- not a
+    # single global max that could pick the wrong matchday if the groups
+    # had different lengths. Both groups have their own team at position
+    # 1, not collapsed into one combined ranking.
+    assert len(rows) == 4
+    assert set(rows.loc[rows["position"] == 1, "team_name"]) == {"Team A", "Team C"}
+    assert set(rows["group_name"]) == {"GROUP_A", "GROUP_B"}
+
+
+def test_reconstructed_standings_is_empty_when_the_season_has_no_data(
+    tmp_path: Path,
+) -> None:
+    con = duckdb.connect(str(build_season_archive_db(tmp_path)), read_only=True)
+
+    rows = get_reconstructed_final_standings(con, "PL", 2403)
 
     assert rows.empty
