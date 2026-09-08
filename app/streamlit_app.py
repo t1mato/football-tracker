@@ -10,5 +10,6 @@ st.set_page_config(page_title="Football Tracker", layout="wide")
 pages = [
     st.Page("pages/competition_hub.py", title="Competition Hub"),
     st.Page("pages/match_center.py", title="Match Center"),
+    st.Page("pages/team_profile.py", title="Team Profile"),
 ]
 st.navigation(pages).run()
