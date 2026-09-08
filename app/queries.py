@@ -120,8 +120,8 @@ def get_standings(
 
     table = con.execute(
         """
-        select f.position, t.team_name, f.played_games, f.won, f.draw, f.lost,
-               f.goals_for, f.goals_against, f.goal_difference, f.points, f.form
+        select f.position, t.team_id, t.team_name, f.played_games, f.won, f.draw,
+               f.lost, f.goals_for, f.goals_against, f.goal_difference, f.points, f.form
         from fct_standings_snapshot f
         join dim_teams t on f.team_id = t.team_id
         where f.competition_code = ? and f.season_id = ? and f.snapshot_date = ?

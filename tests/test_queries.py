@@ -97,6 +97,7 @@ def test_a_normal_league_phase_returns_the_table_ordered_by_position(tmp_path: P
     assert result.table is not None
     assert list(result.table["team_name"]) == ["Team A", "Team B"]
     assert list(result.table["position"]) == [1, 2]
+    assert list(result.table["team_id"]) == [1, 2]
 
 
 def test_only_the_latest_snapshot_date_is_returned(tmp_path: Path) -> None:
