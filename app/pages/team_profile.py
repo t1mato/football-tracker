@@ -20,9 +20,9 @@ con = get_connection()
 teams = get_current_teams(con)
 
 selected_team_name = st.selectbox("Team", teams["team_name"])
-selected_team_id = teams.loc[
-    teams["team_name"] == selected_team_name, "team_id"
-].iloc[0]
+selected_team_id = int(
+    teams.loc[teams["team_name"] == selected_team_name, "team_id"].iloc[0]
+)
 
 competitions = get_team_competitions(con, selected_team_id)
 
