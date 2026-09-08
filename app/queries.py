@@ -39,7 +39,17 @@ class StandingsResult:
 @st.cache_resource
 def get_connection(db_path: Path = DEFAULT_DB_PATH) -> duckdb.DuckDBPyConnection:
     """One read-only connection per Streamlit session, not one per rerun."""
-    return duckdb.connect(str(db_path), read_only=True)
+    con = duckdb.connect(str(db_path), read_only=True)
+    # Load-bearing, not cosmetic -- same reasoning as transform/profiles.yml's
+    # TimeZone: 'UTC' setting. fct_matches.kickoff_utc is TIMESTAMP WITH TIME
+    # ZONE; without an explicit session TimeZone, DuckDB converts it to the
+    # MACHINE's local timezone whenever it's read out (e.g. via .df()), and
+    # nothing downstream would catch that -- app/formatting.py's kickoff
+    # formatter would print a wrong wall-clock time with a literal "UTC"
+    # suffix, silently. This project is UTC end-to-end (see CLAUDE.md);
+    # this is the one connection that hadn't yet been pinned to it.
+    con.execute("SET TimeZone='UTC'")
+    return con
 
 
 def get_competitions(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
