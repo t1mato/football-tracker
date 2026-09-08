@@ -147,7 +147,9 @@ def get_recent_matches(
           and f.status in ('{"', '".join(_FINISHED_STATUSES)}')
         order by f.kickoff_utc desc
         limit 10
-        """,
+        """,  # nosec B608 -- only the hardcoded _MATCH_COLUMNS/_FINISHED_STATUSES
+        # constants are interpolated; the real user-supplied values
+        # (competition_code, season_id) are bound via ? placeholders below.
         [competition_code, season_id],
     ).df()
 
@@ -165,7 +167,9 @@ def get_upcoming_matches(
           and f.status in ('{"', '".join(_UPCOMING_STATUSES)}')
         order by f.kickoff_utc asc
         limit 10
-        """,
+        """,  # nosec B608 -- only the hardcoded _MATCH_COLUMNS/_UPCOMING_STATUSES
+        # constants are interpolated; the real user-supplied values
+        # (competition_code, season_id) are bound via ? placeholders below.
         [competition_code, season_id],
     ).df()
 
@@ -410,7 +414,9 @@ def get_head_to_head_matches(
           and ((f.home_team_id = ? and f.away_team_id = ?)
             or (f.home_team_id = ? and f.away_team_id = ?))
         order by f.kickoff_utc desc
-        """,
+        """,  # nosec B608 -- only the hardcoded _FINISHED_STATUSES constant is
+        # interpolated; the real user-supplied values (team_1_id, team_2_id)
+        # are bound via ? placeholders below.
         [team_1_id, team_2_id, team_2_id, team_1_id],
     ).df()
 

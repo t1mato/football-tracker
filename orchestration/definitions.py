@@ -31,7 +31,7 @@ a silent-data-loss risk (resolving profiles.yml's relative
 database with no error).
 """
 
-import subprocess
+import subprocess  # nosec B404 -- used only for a fixed dbt-build invocation, see _run_dbt_build below
 from pathlib import Path
 
 from dagster import AssetExecutionContext, Definitions, asset
@@ -51,7 +51,11 @@ def _run_dbt_build(context: AssetExecutionContext, *, select: str | None = None,
     if exclude is not None:
         args += ["--exclude", exclude]
 
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 -- args is built entirely from hardcoded
+        # strings (DBT_EXECUTABLE, "build", "--select"/"--exclude" plus the
+        # literal select/exclude values this file's own asset functions pass
+        # in below); no external/untrusted input reaches this call, and
+        # shell=True is deliberately not used.
         args, cwd=TRANSFORM_DIR, capture_output=True, text=True, check=False
     )
     context.log.info(result.stdout)
