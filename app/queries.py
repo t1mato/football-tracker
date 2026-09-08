@@ -218,6 +218,29 @@ def get_current_teams(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """).df()
 
 
+def get_team_competitions(con: duckdb.DuckDBPyConnection, team_id: int) -> pd.DataFrame:
+    """Every competition this team has a current-season match in.
+
+    DISTINCT is load-bearing here, unlike get_current_teams -- a team can
+    have several matches in the same competition/season, and without it
+    this would return one row per match, not one per competition.
+    """
+    return con.execute(
+        """
+        select distinct f.competition_code, c.competition_name, f.season_id
+        from fct_matches f
+        join dim_competitions c on f.competition_code = c.competition_code
+        where (f.home_team_id = ? or f.away_team_id = ?)
+          and f.season_id = (
+              select max(season_id) from dim_seasons s2
+              where s2.competition_code = f.competition_code
+          )
+        order by c.competition_name
+        """,
+        [team_id, team_id],
+    ).df()
+
+
 def get_match_detail(
     con: duckdb.DuckDBPyConnection, match_id: int
 ) -> pd.Series | None:

@@ -22,6 +22,7 @@ from app.queries import (
     get_matches_for_picker,
     get_recent_matches,
     get_standings,
+    get_team_competitions,
     get_upcoming_matches,
 )
 
@@ -392,3 +393,28 @@ def test_current_teams_includes_home_and_away_current_season_appearances(
     assert set(rows["team_id"]) == {1, 2, 4}
     assert 3 not in set(rows["team_id"])
     assert rows[rows["team_id"] == 1]["team_id"].count() == 1  # Team 1 appears exactly once
+
+
+def test_team_competitions_covers_every_current_competition_for_one_team(
+    tmp_path: Path,
+) -> None:
+    db_path = build_team_profile_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B'), (3, 'Team C');
+        insert into main.dim_competitions values
+            ('PL', 'Premier League'), ('CL', 'Champions League');
+        insert into main.dim_seasons values (2502, 'PL'), (2601, 'CL');
+        insert into main.fct_matches values
+            (1, 'PL', 2502, 1, 2),
+            (2, 'CL', 2601, 1, 3),
+            (3, 'PL', 2502, 2, 3)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_competitions(con, 1)
+
+    assert set(rows["competition_code"]) == {"PL", "CL"}
+    # team_id=1 is not in match 3, so this must not produce a duplicate PL row
+    assert len(rows) == 2
