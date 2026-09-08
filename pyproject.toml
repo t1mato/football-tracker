@@ -12,7 +12,7 @@ dependencies = [
     # columns). Pin below 2 regardless of what else is in this list.
     "dbt-core>=1.12,<2",
     "dbt-duckdb>=1.11",
-    "dlt[duckdb]>=1.30",
+    "dlt[duckdb,bigquery]>=1.30",
     "requests>=2.32",
     "streamlit>=1.63.0",
 ]

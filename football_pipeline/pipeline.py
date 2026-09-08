@@ -4,6 +4,7 @@
     python -m football_pipeline.pipeline 2023 2024    # backfill
 """
 
+import os
 import sys
 import time
 import tomllib
@@ -35,6 +36,24 @@ DEFAULT_DB_PATH = Path("football_data.duckdb")
 CURRENT_SEASON = 2026
 
 
+def _destination() -> str | Any:
+    """Local dev is unaffected -- returns the exact "duckdb" literal
+    already used today unless PIPELINE_DESTINATION=bigquery is set.
+
+    No project= kwarg: dlt.destinations.bigquery's real constructor has
+    none (verified against the installed package, not assumed from
+    docs). The project resolves entirely through Application Default
+    Credentials -- gcloud auth application-default login locally, a
+    Cloud Run Job's attached service account in production -- confirmed
+    live with a real load: credentials=None correctly resolved to the
+    right project via ADC alone, with no explicit project anywhere in
+    this function.
+    """
+    if os.environ.get("PIPELINE_DESTINATION") == "bigquery":
+        return dlt.destinations.bigquery(location="US")
+    return "duckdb"
+
+
 def build_client() -> FootballDataClient:
     """One client, one limiter, for the whole run.
 
@@ -52,7 +71,7 @@ def build_client() -> FootballDataClient:
 def run(seasons: tuple[int, ...]) -> Any:
     pipeline = dlt.pipeline(
         pipeline_name="football_data",
-        destination="duckdb",
+        destination=_destination(),
         dataset_name="raw",
     )
     source = football_data_source(
