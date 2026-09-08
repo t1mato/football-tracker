@@ -33,10 +33,10 @@ select
     team_a_id,
     team_b_id,
     count(*) as matches_played,
-    sum(case when winner_side = 'TEAM_A' then 1 else 0 end) as team_a_wins,
-    sum(case when winner_side = 'TEAM_B' then 1 else 0 end) as team_b_wins,
-    sum(case when winner_side = 'DRAW' then 1 else 0 end) as draws,
-    sum(team_a_goals) as team_a_goals,
-    sum(team_b_goals) as team_b_goals
+    cast(sum(case when winner_side = 'TEAM_A' then 1 else 0 end) as {{ dbt.type_bigint() }}) as team_a_wins,
+    cast(sum(case when winner_side = 'TEAM_B' then 1 else 0 end) as {{ dbt.type_bigint() }}) as team_b_wins,
+    cast(sum(case when winner_side = 'DRAW' then 1 else 0 end) as {{ dbt.type_bigint() }}) as draws,
+    cast(sum(team_a_goals) as {{ dbt.type_bigint() }}) as team_a_goals,
+    cast(sum(team_b_goals) as {{ dbt.type_bigint() }}) as team_b_goals
 from normalised
 group by team_a_id, team_b_id
