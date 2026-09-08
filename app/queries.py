@@ -262,6 +262,24 @@ def get_team_form(
     return df.iloc[0]
 
 
+def get_team_position_history(
+    con: duckdb.DuckDBPyConnection, team_id: int, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """May legitimately be empty -- the reconstruction has nothing to chart
+    yet (not started, or entirely in a non-league-table stage). The page
+    must handle that with a message, not an empty or broken chart.
+    """
+    return con.execute(
+        """
+        select matchday, position
+        from mart_standings_over_time
+        where team_id = ? and competition_code = ? and season_id = ?
+        order by matchday asc
+        """,
+        [team_id, competition_code, season_id],
+    ).df()
+
+
 def get_match_detail(
     con: duckdb.DuckDBPyConnection, match_id: int
 ) -> pd.Series | None:

@@ -24,6 +24,7 @@ from app.queries import (
     get_standings,
     get_team_competitions,
     get_team_form,
+    get_team_position_history,
     get_upcoming_matches,
 )
 
@@ -453,3 +454,36 @@ def test_team_form_returns_none_when_the_team_has_no_results_yet(tmp_path: Path)
     form = get_team_form(con, 1, "CL")
 
     assert form is None
+
+
+def test_position_history_is_ordered_by_matchday(tmp_path: Path) -> None:
+    db_path = build_team_profile_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_standings_over_time values
+            (1, 'PL', 2502, 3, 2),
+            (1, 'PL', 2502, 1, 5),
+            (1, 'PL', 2502, 2, 4)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_position_history(con, 1, "PL", 2502)
+
+    assert list(rows["matchday"]) == [1, 2, 3]
+    assert list(rows["position"]) == [5, 4, 2]
+
+
+def test_position_history_is_empty_when_the_reconstruction_has_nothing_yet(
+    tmp_path: Path,
+) -> None:
+    """A team/competition/season with nothing in mart_standings_over_time
+    yet (not started, or entirely in a non-league-table stage) is a real,
+    valid state -- an empty DataFrame, not an error. The page must show a
+    message here, not an empty or broken chart.
+    """
+    con = duckdb.connect(str(build_team_profile_db(tmp_path)), read_only=True)
+
+    rows = get_team_position_history(con, 1, "CL", 2601)
+
+    assert rows.empty
