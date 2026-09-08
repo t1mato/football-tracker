@@ -16,6 +16,7 @@ import duckdb
 from app.queries import (
     get_competitions,
     get_current_season_id,
+    get_matches_for_picker,
     get_recent_matches,
     get_standings,
     get_upcoming_matches,
@@ -209,3 +210,20 @@ def test_upcoming_matches_are_scheduled_or_timed_soonest_first(tmp_path: Path) -
 
     assert list(rows["match_id"]) == [4, 3]
     assert rows.iloc[0]["kickoff_time_confirmed"] == False  # noqa: E712
+
+
+def test_matches_for_picker_are_ordered_by_kickoff_ascending(tmp_path: Path) -> None:
+    db_path = build_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, '2026-09-08 15:00:00', true, 'FINISHED', 1, 2, 2, 1),
+            (2, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 2, 1, 0, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_matches_for_picker(con, "PL", 2502)
+
+    assert list(rows["match_id"]) == [2, 1]
+    assert list(rows["home_team_name"]) == ["Team B", "Team A"]

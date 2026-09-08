@@ -167,3 +167,25 @@ def get_upcoming_matches(
         """,
         [competition_code, season_id],
     ).df()
+
+
+def get_matches_for_picker(
+    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """Every match in this competition/season, for a match-selection dropdown.
+
+    Unlike get_recent_matches/get_upcoming_matches, no status filter and no
+    limit -- the picker needs to find any match, not just the last/next 10.
+    """
+    return con.execute(
+        """
+        select f.match_id, f.kickoff_utc,
+               ht.team_name as home_team_name, aw.team_name as away_team_name
+        from fct_matches f
+        join dim_teams ht on f.home_team_id = ht.team_id
+        join dim_teams aw on f.away_team_id = aw.team_id
+        where f.competition_code = ? and f.season_id = ?
+        order by f.kickoff_utc asc
+        """,
+        [competition_code, season_id],
+    ).df()
