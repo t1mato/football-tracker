@@ -8,7 +8,7 @@ tests here rather than relying on manual app verification.
 
 import pandas as pd
 
-from app.formatting import format_kickoff, match_display
+from app.formatting import format_kickoff, format_score, match_display
 
 
 def test_a_confirmed_kickoff_renders_date_and_time_with_utc_suffix() -> None:
@@ -92,3 +92,25 @@ def test_an_empty_dataframe_returns_empty_with_the_same_display_columns() -> Non
 
     assert out.empty
     assert list(out.columns) == ["Kickoff", "Home", "Score", "Away"]
+
+
+def test_format_score_renders_home_dash_away() -> None:
+    assert format_score(2, 1) == "2-1"
+
+
+def test_format_score_handles_a_null_home_score() -> None:
+    """DuckDB's nullable Int64 columns surface as pandas.NA, not None --
+    match that exact shape, since that mismatch is what caused the
+    original pd.NA bug this function's logic is protecting against.
+    """
+    home = pd.array([None], dtype="Int64")[0]
+    assert format_score(home, 1) == ""
+
+
+def test_format_score_handles_a_null_away_score() -> None:
+    """The original inline lambda only checked full_time_home's null-ness --
+    an away-only null would have crashed identically. This function checks
+    both.
+    """
+    away = pd.array([None], dtype="Int64")[0]
+    assert format_score(2, away) == ""
