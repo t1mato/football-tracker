@@ -212,12 +212,20 @@ def get_top_scorers(
     May legitimately return an empty DataFrame -- a competition whose
     current season has no counted scorer rows yet is a real state, not an
     error.
+
+    NULLS LAST is explicit on every ORDER BY key rather than relying on
+    DuckDB's default (confirmed empirically to already be NULLS LAST for
+    both ASC and DESC) -- BigQuery's default was not verified from this
+    environment, and assists/penalties are frequently null in the real data,
+    so this shouldn't be left to an unverified cross-database default.
     """
     return con.execute(
         """
         select
             rank() over (
-                order by goals desc, assists desc, played_matches asc
+                order by goals desc nulls last,
+                         assists desc nulls last,
+                         played_matches asc nulls last
             ) as rank,
             player_name, team_name, goals, assists, played_matches, penalties
         from fct_scorers

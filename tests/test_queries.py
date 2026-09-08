@@ -614,3 +614,28 @@ def test_top_scorers_is_empty_when_the_competition_has_no_scorers_yet(
     rows = get_top_scorers(con, "PL", 2502)
 
     assert rows.empty
+
+
+def test_top_scorers_sorts_null_assists_last_not_first(tmp_path: Path) -> None:
+    """assists is frequently NULL in the real data (not every scorer has a
+    tracked assist count) -- NULLS LAST must be explicit, not left to
+    whichever warehouse's default happens to apply, since DuckDB and
+    BigQuery are not guaranteed to agree on NULL ordering under DESC.
+    """
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, null, 0),
+            ('PL', 2502, 2, 'Player B', 11, 'Team Y', 10, 8, 1, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_scorers(con, "PL", 2502)
+
+    # Tied on goals (8). Player B has 1 assist, Player A has NULL assists.
+    # NULLS LAST means the null-assists player sorts after the real value,
+    # not before it (which is what NULLS FIRST -- a real possible default
+    # on some warehouses -- would do instead).
+    assert list(rows["player_name"]) == ["Player B", "Player A"]
