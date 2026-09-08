@@ -192,6 +192,42 @@ def get_matches_for_picker(
     ).df()
 
 
+def get_top_scorers(
+    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """fct_scorers already carries player_name/team_name denormalized on
+    the fact row (the source API embeds scorer names directly, unlike
+    matches/standings, which only carry team_id and need dim_teams) -- no
+    join needed here.
+
+    rank is computed with rank(), not row_number() and not dense_rank():
+    two players tied on every sort key must share a rank, with the next
+    distinct row's rank skipping by the count of tied rows ahead of it
+    (1, 2, 2, 4) -- dense_rank() would give 1, 2, 2, 3 instead, silently
+    compressing the tie away, and row_number() would split ties
+    arbitrarily by whatever order the query happens to return rows in.
+    Verified empirically against DuckDB, not assumed from the function
+    name.
+
+    May legitimately return an empty DataFrame -- a competition whose
+    current season has no counted scorer rows yet is a real state, not an
+    error.
+    """
+    return con.execute(
+        """
+        select
+            rank() over (
+                order by goals desc, assists desc, played_matches asc
+            ) as rank,
+            player_name, team_name, goals, assists, played_matches, penalties
+        from fct_scorers
+        where competition_code = ? and season_id = ?
+        order by rank
+        """,
+        [competition_code, season_id],
+    ).df()
+
+
 def get_current_teams(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """Every team with at least one match, home or away, in ANY competition's
     current season. UNION (not UNION ALL) dedupes a team appearing in both

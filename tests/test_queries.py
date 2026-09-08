@@ -25,6 +25,7 @@ from app.queries import (
     get_team_competitions,
     get_team_form,
     get_team_position_history,
+    get_top_scorers,
     get_upcoming_matches,
 )
 
@@ -504,5 +505,112 @@ def test_position_history_is_empty_when_the_reconstruction_has_nothing_yet(
     con = duckdb.connect(str(build_team_profile_db(tmp_path)), read_only=True)
 
     rows = get_team_position_history(con, 1, "CL", 2601)
+
+    assert rows.empty
+
+
+def build_scorers_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.fct_scorers (
+            competition_code varchar, season_id bigint, player_id bigint,
+            player_name varchar, team_id bigint, team_name varchar,
+            played_matches bigint, goals bigint, assists bigint, penalties bigint
+        )
+    """)
+    con.close()
+    return db_path
+
+
+def test_top_scorers_sorts_by_goals_then_assists_then_fewer_matches(
+    tmp_path: Path,
+) -> None:
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 0),
+            ('PL', 2502, 2, 'Player B', 11, 'Team Y', 12, 8, 3, 0),
+            ('PL', 2502, 3, 'Player C', 12, 'Team Z', 15, 5, 1, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_scorers(con, "PL", 2502)
+
+    # Player B and Player A are tied on goals (8); assists breaks the tie
+    # (3 beats 2), so B ranks above A. Player C trails both on goals alone.
+    assert list(rows["player_name"]) == ["Player B", "Player A", "Player C"]
+    assert list(rows["rank"]) == [1, 2, 3]
+
+
+def test_top_scorers_breaks_a_goals_and_assists_tie_by_fewer_matches_played(
+    tmp_path: Path,
+) -> None:
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 20, 8, 2, 0),
+            ('PL', 2502, 2, 'Player B', 11, 'Team Y', 14, 8, 2, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_scorers(con, "PL", 2502)
+
+    # Tied on goals (8) and assists (2) -- Player B needed fewer matches
+    # (14 vs 20) to get there, so B ranks above A.
+    assert list(rows["player_name"]) == ["Player B", "Player A"]
+    assert list(rows["rank"]) == [1, 2]
+
+
+def test_top_scorers_gives_fully_tied_players_the_same_rank(tmp_path: Path) -> None:
+    """rank(), not row_number() and not dense_rank() -- two players equal
+    on every sort key must share a rank, and the next distinct row's rank
+    must skip accordingly (1, 2, 2, 4), not run consecutively (1, 2, 2, 3,
+    which dense_rank() would give instead). This is the whole reason
+    rank() was chosen over the other two window functions in the spec,
+    and a test that only checks "sorted correctly" would pass even if
+    this were silently swapped to either one.
+    """
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 10, 5, 0),
+            ('PL', 2502, 2, 'Player B', 11, 'Team Y', 10, 8, 3, 0),
+            ('PL', 2502, 3, 'Player C', 12, 'Team Z', 10, 8, 3, 0),
+            ('PL', 2502, 4, 'Player D', 13, 'Team W', 10, 5, 1, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_scorers(con, "PL", 2502)
+
+    # A is alone at the top (rank 1). B and C are fully tied (8 goals, 3
+    # assists, 10 matches each) and must both be rank 2. D is the next
+    # distinct entry and must be rank 4, not rank 3 -- proving rank()'s
+    # gap-preserving behavior (two players placed ahead of D), not just
+    # "B and C are adjacent."
+    ranks_by_name = dict(zip(rows["player_name"], rows["rank"], strict=True))
+    assert ranks_by_name["Player A"] == 1
+    assert ranks_by_name["Player B"] == 2
+    assert ranks_by_name["Player C"] == 2
+    assert ranks_by_name["Player D"] == 4
+
+
+def test_top_scorers_is_empty_when_the_competition_has_no_scorers_yet(
+    tmp_path: Path,
+) -> None:
+    """Zero fct_scorers rows for this competition/season is a real, valid
+    state (season just started, nobody has scored) -- an empty DataFrame,
+    not an error. The page must show a message here, not an empty or
+    broken table.
+    """
+    con = duckdb.connect(str(build_scorers_db(tmp_path)), read_only=True)
+
+    rows = get_top_scorers(con, "PL", 2502)
 
     assert rows.empty
