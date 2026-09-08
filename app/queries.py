@@ -189,3 +189,34 @@ def get_matches_for_picker(
         """,
         [competition_code, season_id],
     ).df()
+
+
+def get_match_detail(
+    con: duckdb.DuckDBPyConnection, match_id: int
+) -> pd.Series | None:
+    """One match's full detail: teams, venue (nullable -- a needs_review
+    venue has no coordinates), weather (nullable -- no row until ingested,
+    or kickoff not yet confirmed). None if match_id doesn't exist at all.
+    """
+    df = con.execute(
+        """
+        select f.match_id, f.competition_code, f.season_id, f.matchday, f.stage,
+               f.kickoff_utc, f.kickoff_time_confirmed, f.status,
+               f.full_time_home, f.full_time_away,
+               ht.team_name as home_team_name, aw.team_name as away_team_name,
+               v.canonical_venue_name, v.display_name as venue_display_name,
+               v.capacity, v.latitude, v.longitude, v.needs_review as venue_needs_review,
+               w.temperature_2m, w.precipitation, w.wind_speed_10m,
+               w.data_type as weather_data_type
+        from fct_matches f
+        join dim_teams ht on f.home_team_id = ht.team_id
+        join dim_teams aw on f.away_team_id = aw.team_id
+        left join dim_venues v on f.venue_key = v.venue_key
+        left join fct_match_weather w on f.match_id = w.match_id
+        where f.match_id = ?
+        """,
+        [match_id],
+    ).df()
+    if df.empty:
+        return None
+    return df.iloc[0]

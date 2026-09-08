@@ -12,10 +12,12 @@ build_db().
 from pathlib import Path
 
 import duckdb
+import pandas as pd
 
 from app.queries import (
     get_competitions,
     get_current_season_id,
+    get_match_detail,
     get_matches_for_picker,
     get_recent_matches,
     get_standings,
@@ -227,3 +229,85 @@ def test_matches_for_picker_are_ordered_by_kickoff_ascending(tmp_path: Path) -> 
 
     assert list(rows["match_id"]) == [2, 1]
     assert list(rows["home_team_name"]) == ["Team B", "Team A"]
+
+
+def build_match_detail_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.fct_matches (
+            match_id bigint, competition_code varchar, season_id integer,
+            matchday integer, stage varchar,
+            kickoff_utc timestamp, kickoff_time_confirmed boolean, status varchar,
+            home_team_id bigint, away_team_id bigint, venue_key varchar,
+            full_time_home integer, full_time_away integer
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar);
+        create table main.dim_venues (
+            venue_key varchar, canonical_venue_name varchar, display_name varchar,
+            capacity integer, latitude double, longitude double, needs_review boolean
+        );
+        create table main.fct_match_weather (
+            match_id bigint, temperature_2m double, precipitation double,
+            wind_speed_10m double, data_type varchar
+        );
+        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B')
+    """)
+    con.close()
+    return db_path
+
+
+def test_match_detail_joins_teams_venue_and_weather(tmp_path: Path) -> None:
+    db_path = build_match_detail_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, 3, 'REGULAR_SEASON', '2026-09-12 14:00:00', true,
+             'FINISHED', 1, 2, 'v1', 2, 1);
+        insert into main.dim_venues values
+            ('v1', 'Anfield', 'Anfield, Liverpool', 54074, 53.4308, -2.9608, false);
+        insert into main.fct_match_weather values
+            (1, 18.5, 0.0, 12.0, 'actual')
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    detail = get_match_detail(con, 1)
+
+    assert detail is not None
+    assert detail["home_team_name"] == "Team A"
+    assert detail["away_team_name"] == "Team B"
+    assert detail["canonical_venue_name"] == "Anfield"
+    assert detail["capacity"] == 54074
+    assert detail["temperature_2m"] == 18.5
+    assert detail["weather_data_type"] == "actual"
+
+
+def test_match_detail_handles_no_weather_and_unresolved_venue(tmp_path: Path) -> None:
+    """No fct_match_weather row, and a needs_review venue with null coordinates
+    -- both real, both must produce nulls, not an error.
+    """
+    db_path = build_match_detail_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (2, 'PL', 2502, 4, 'REGULAR_SEASON', '2026-09-19 15:00:00', true,
+             'SCHEDULED', 1, 2, 'v2', null, null);
+        insert into main.dim_venues values
+            ('v2', 'Griffin Park', 'Griffin Park (demolished)', null, null, null, true)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    detail = get_match_detail(con, 2)
+
+    assert detail is not None
+    assert detail["venue_needs_review"] == True  # noqa: E712
+    assert pd.isna(detail["latitude"])
+    assert pd.isna(detail["weather_data_type"])
+
+
+def test_match_detail_returns_none_for_an_unknown_match_id(tmp_path: Path) -> None:
+    con = duckdb.connect(str(build_match_detail_db(tmp_path)), read_only=True)
+
+    assert get_match_detail(con, 999) is None
