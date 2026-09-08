@@ -532,3 +532,26 @@ unit_tests:
            wins: 2, draws: 1, losses: 2}
         - {team_id: 950, competition_code: 'PL', season_id: 2401, last_5_results: 'W',
            wins: 1, draws: 0, losses: 0}
+
+  - name: head_to_head_collapses_reverse_fixture_and_attributes_wins_correctly
+    description: >
+      Two matches between the same pair, played with home/away reversed
+      between legs, must collapse into ONE mart_head_to_head row (not two),
+      with wins and goals attributed to team_a/team_b correctly regardless
+      of which team was home in a given leg. Every existing schema test on
+      this model (unique_combination_of_columns, team_a_id < team_b_id,
+      matches_played = wins + wins + draws) would still pass if TEAM_A and
+      TEAM_B were silently swapped in winner_side -- this test would not.
+    model: mart_head_to_head
+    given:
+      - input: ref('fct_matches')
+        rows:
+          - {match_id: 1, home_team_id: 10, away_team_id: 20, status: 'FINISHED',
+             full_time_home: 2, full_time_away: 0, winner: 'HOME_TEAM'}
+          - {match_id: 2, home_team_id: 20, away_team_id: 10, status: 'FINISHED',
+             full_time_home: 1, full_time_away: 3, winner: 'AWAY_TEAM'}
+    expect:
+      rows:
+        - {team_a_id: 10, team_b_id: 20, matches_played: 2,
+           team_a_wins: 2, team_b_wins: 0, draws: 0,
+           team_a_goals: 5, team_b_goals: 1}

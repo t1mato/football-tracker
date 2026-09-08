@@ -398,7 +398,7 @@ def get_head_to_head_matches(
     also returns None, since both read the same underlying match set.
     """
     return con.execute(
-        """
+        f"""
         select f.kickoff_utc, f.kickoff_time_confirmed, c.competition_name,
                ht.team_name as home_team_name, aw.team_name as away_team_name,
                f.full_time_home, f.full_time_away
@@ -406,7 +406,7 @@ def get_head_to_head_matches(
         join dim_teams ht on f.home_team_id = ht.team_id
         join dim_teams aw on f.away_team_id = aw.team_id
         join dim_competitions c on f.competition_code = c.competition_code
-        where f.status in ('FINISHED', 'AWARDED')
+        where f.status in ('{"', '".join(_FINISHED_STATUSES)}')
           and ((f.home_team_id = ? and f.away_team_id = ?)
             or (f.home_team_id = ? and f.away_team_id = ?))
         order by f.kickoff_utc desc

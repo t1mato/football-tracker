@@ -36,7 +36,7 @@ select
     cast(sum(case when winner_side = 'TEAM_A' then 1 else 0 end) as {{ dbt.type_bigint() }}) as team_a_wins,
     cast(sum(case when winner_side = 'TEAM_B' then 1 else 0 end) as {{ dbt.type_bigint() }}) as team_b_wins,
     cast(sum(case when winner_side = 'DRAW' then 1 else 0 end) as {{ dbt.type_bigint() }}) as draws,
-    cast(sum(team_a_goals) as {{ dbt.type_bigint() }}) as team_a_goals,
-    cast(sum(team_b_goals) as {{ dbt.type_bigint() }}) as team_b_goals
+    cast(coalesce(sum(team_a_goals), 0) as {{ dbt.type_bigint() }}) as team_a_goals,
+    cast(coalesce(sum(team_b_goals), 0) as {{ dbt.type_bigint() }}) as team_b_goals
 from normalised
 group by team_a_id, team_b_id
