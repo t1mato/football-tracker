@@ -8,7 +8,13 @@ tests here rather than relying on manual app verification.
 
 import pandas as pd
 
-from app.formatting import format_kickoff, format_score, format_weather, match_display
+from app.formatting import (
+    format_kickoff,
+    format_score,
+    format_weather,
+    match_display,
+    venue_is_resolved,
+)
 
 
 def test_a_confirmed_kickoff_renders_date_and_time_with_utc_suffix() -> None:
@@ -128,6 +134,26 @@ def test_format_weather_labels_a_forecast_reading() -> None:
     result = format_weather(20.0, 1.5, 8.0, "forecast")
 
     assert "Forecast" in result
+
+
+def test_venue_is_resolved_is_false_for_a_genuinely_null_venue() -> None:
+    """A match whose venue_key has no dim_venues row at all -- distinct from
+    a resolved-but-flagged venue. DuckDB's actual nullable-boolean null shape
+    (pandas' boolean dtype, pd.NA), not Python None -- this is exactly the
+    state the reviewer found live in the warehouse (4 CL matches, season
+    2557, with a null venue_key).
+    """
+    needs_review = pd.array([None], dtype="boolean")[0]
+
+    assert venue_is_resolved(needs_review) is False
+
+
+def test_venue_is_resolved_is_false_when_flagged_for_review() -> None:
+    assert venue_is_resolved(True) is False
+
+
+def test_venue_is_resolved_is_true_when_resolved_and_not_flagged() -> None:
+    assert venue_is_resolved(False) is True
 
 
 def test_format_weather_handles_no_data_type_without_crashing() -> None:

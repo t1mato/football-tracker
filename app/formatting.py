@@ -48,6 +48,18 @@ def format_weather(
     )
 
 
+def venue_is_resolved(venue_needs_review: object) -> bool:
+    """True only when a match's venue is both present and not flagged for
+    review. `venue_needs_review` is null when the match's `venue_key` has no
+    corresponding `dim_venues` row at all (never geocoded / never joined) --
+    a different, unflagged state from a resolved venue with `needs_review =
+    true`. Both must render as "not resolved", so a naive
+    `if venue_needs_review:` would raise `TypeError: boolean value of NA is
+    ambiguous` on the null case instead of falling through correctly.
+    """
+    return not (pd.isna(venue_needs_review) or venue_needs_review)
+
+
 def match_display(df: pd.DataFrame) -> pd.DataFrame:
     if df.empty:
         return pd.DataFrame(columns=["Kickoff", "Home", "Score", "Away"])

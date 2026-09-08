@@ -307,6 +307,31 @@ def test_match_detail_handles_no_weather_and_unresolved_venue(tmp_path: Path) ->
     assert pd.isna(detail["weather_data_type"])
 
 
+def test_match_detail_handles_a_null_venue_key(tmp_path: Path) -> None:
+    """A match whose venue_key is itself null -- no dim_venues row to join
+    to at all, distinct from test_match_detail_handles_no_weather_and_
+    unresolved_venue above (which joins to a real, resolved-false venue
+    row). This is the exact state the final whole-branch review found live
+    in the warehouse: 4 Champions League matches (season 2557) with a null
+    venue_key. The LEFT JOIN still produces a row, but every dim_venues
+    column -- including venue_needs_review -- comes back null, not false.
+    """
+    db_path = build_match_detail_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (3, 'CL', 2557, null, 'LEAGUE_STAGE', '2026-09-12 14:00:00', true,
+             'SCHEDULED', 1, 2, null, null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    detail = get_match_detail(con, 3)
+
+    assert detail is not None
+    assert pd.isna(detail["venue_needs_review"])
+
+
 def test_match_detail_returns_none_for_an_unknown_match_id(tmp_path: Path) -> None:
     con = duckdb.connect(str(build_match_detail_db(tmp_path)), read_only=True)
 
