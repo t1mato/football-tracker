@@ -415,6 +415,38 @@ def get_head_to_head_matches(
     ).df()
 
 
+def get_cross_league_stats(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    """One row per tracked competition (dim_competitions), always -- a
+    competition with no decided matches in its current season (e.g. UEFA
+    Champions League before its group stage starts) still appears, with
+    null decided_matches/avg_goals_per_match/avg_goal_margin/home_win_rate,
+    via LEFT JOIN rather than silently vanishing from the comparison.
+
+    This differs from every other "no data" case in this module
+    (get_team_form/get_team_position_history return None/empty) --
+    here one query covers every competition at once, so absence is
+    expressed per-row instead of for the whole result.
+    """
+    return con.execute(
+        """
+        select
+            c.competition_name,
+            m.decided_matches,
+            m.avg_goals_per_match,
+            m.avg_goal_margin,
+            m.home_win_rate
+        from dim_competitions c
+        left join mart_cross_league_stats m
+          on m.competition_code = c.competition_code
+         and m.season_id = (
+             select max(season_id) from dim_seasons s
+             where s.competition_code = c.competition_code
+         )
+        order by c.competition_name
+        """
+    ).df()
+
+
 def get_match_detail(
     con: duckdb.DuckDBPyConnection, match_id: int
 ) -> pd.Series | None:

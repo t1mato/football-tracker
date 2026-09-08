@@ -16,6 +16,7 @@ import pandas as pd
 
 from app.queries import (
     get_competitions,
+    get_cross_league_stats,
     get_current_season_id,
     get_current_teams,
     get_head_to_head,
@@ -694,6 +695,107 @@ def test_top_scorers_returns_the_expected_columns(tmp_path: Path) -> None:
         "rank", "player_name", "team_name", "goals",
         "assists", "played_matches", "penalties",
     ]
+
+
+def build_cross_league_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.dim_competitions (
+            competition_code varchar, competition_name varchar
+        );
+        create table main.dim_seasons (
+            competition_code varchar, season_id bigint
+        );
+        create table main.mart_cross_league_stats (
+            competition_code varchar, season_id bigint, decided_matches bigint,
+            avg_goals_per_match double, avg_goal_margin double, home_win_rate double
+        );
+        insert into main.dim_competitions values
+            ('PL', 'Premier League'), ('CL', 'UEFA Champions League');
+        insert into main.dim_seasons values
+            ('PL', 2401), ('PL', 2502), ('CL', 2350), ('CL', 2454)
+    """)
+    con.close()
+    return db_path
+
+
+def test_cross_league_stats_returns_real_numbers_for_a_competition_with_data(
+    tmp_path: Path,
+) -> None:
+    db_path = build_cross_league_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_cross_league_stats values
+            ('PL', 2502, 30, 2.5, 1.2, 0.4)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_cross_league_stats(con)
+
+    pl_row = rows[rows["competition_name"] == "Premier League"].iloc[0]
+    assert pl_row["decided_matches"] == 30
+    assert pl_row["avg_goals_per_match"] == 2.5
+    assert pl_row["avg_goal_margin"] == 1.2
+    assert pl_row["home_win_rate"] == 0.4
+
+
+def test_cross_league_stats_includes_a_competition_with_no_current_season_row(
+    tmp_path: Path,
+) -> None:
+    """UEFA Champions League's current season (2454, the max season_id for
+    CL) has no mart_cross_league_stats row at all -- zero decided matches
+    means the mart's group by never produces a row. This must still
+    appear in the result, with null stats, not be silently dropped by an
+    inner join.
+    """
+    db_path = build_cross_league_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_cross_league_stats values
+            ('PL', 2502, 30, 2.5, 1.2, 0.4)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_cross_league_stats(con)
+
+    assert "UEFA Champions League" in list(rows["competition_name"])
+    cl_row = rows[rows["competition_name"] == "UEFA Champions League"].iloc[0]
+    assert pd.isna(cl_row["decided_matches"])
+    assert pd.isna(cl_row["avg_goals_per_match"])
+    assert pd.isna(cl_row["home_win_rate"])
+
+
+def test_cross_league_stats_does_not_leak_a_prior_seasons_row(tmp_path: Path) -> None:
+    """PL's current season is 2502 (the max season_id). A mart row that
+    exists only for PL's OLDER season (2401) must not be picked up as if
+    it were the current season's stats -- same class of leak
+    get_team_form is already tested against.
+    """
+    db_path = build_cross_league_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_cross_league_stats values
+            ('PL', 2401, 38, 3.0, 1.5, 0.5)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_cross_league_stats(con)
+
+    pl_row = rows[rows["competition_name"] == "Premier League"].iloc[0]
+    assert pd.isna(pl_row["decided_matches"])
+
+
+def test_cross_league_stats_has_exactly_one_row_per_competition(tmp_path: Path) -> None:
+    con = duckdb.connect(str(build_cross_league_db(tmp_path)), read_only=True)
+
+    rows = get_cross_league_stats(con)
+
+    assert len(rows) == 2
+    assert set(rows["competition_name"]) == {"Premier League", "UEFA Champions League"}
 
 
 def build_head_to_head_db(tmp_path: Path) -> Path:
