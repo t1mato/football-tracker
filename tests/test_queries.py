@@ -373,16 +373,22 @@ def test_current_teams_includes_home_and_away_current_season_appearances(
     db_path = build_team_profile_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
-        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B'), (3, 'Team C');
+        insert into main.dim_teams values
+            (1, 'Team A'), (2, 'Team B'), (3, 'Team C'), (4, 'Team D');
         insert into main.dim_seasons values (2501, 'PL'), (2502, 'PL');
         insert into main.fct_matches values
             (1, 'PL', 2502, 1, 2),
-            (2, 'PL', 2501, 3, 1)
+            (2, 'PL', 2501, 3, 1),
+            (3, 'PL', 2502, 4, 1)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
 
     rows = get_current_teams(con)
 
-    assert set(rows["team_id"]) == {1, 2}
+    # Team 1 appears in TWO current-season matches (match 1 as home_team_id,
+    # match 3 as away_team_id), but UNION deduplicates it to exactly one row.
+    # This verifies the deduplication behavior, not just home/away inclusion.
+    assert set(rows["team_id"]) == {1, 2, 4}
     assert 3 not in set(rows["team_id"])
+    assert rows[rows["team_id"] == 1]["team_id"].count() == 1  # Team 1 appears exactly once
