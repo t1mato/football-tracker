@@ -23,6 +23,7 @@ from app.queries import (
     get_recent_matches,
     get_standings,
     get_team_competitions,
+    get_team_form,
     get_upcoming_matches,
 )
 
@@ -423,3 +424,32 @@ def test_team_competitions_covers_every_current_competition_for_one_team(
     assert len(rows) == 2
     pl_rows = rows[rows["competition_code"] == "PL"]
     assert len(pl_rows) == 1
+
+
+def test_team_form_returns_the_row_when_one_exists(tmp_path: Path) -> None:
+    db_path = build_team_profile_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_team_form values
+            (1, 'PL', 'WWDLW', 3, 1, 1, 8, 4)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    form = get_team_form(con, 1, "PL")
+
+    assert form is not None
+    assert form["last_5_results"] == "WWDLW"
+    assert form["wins"] == 3
+
+
+def test_team_form_returns_none_when_the_team_has_no_results_yet(tmp_path: Path) -> None:
+    """A team with zero counted results this season/competition has no row
+    in mart_team_form at all -- not a null-valued one. This is the real
+    case this function exists to handle, not an edge case to skip.
+    """
+    con = duckdb.connect(str(build_team_profile_db(tmp_path)), read_only=True)
+
+    form = get_team_form(con, 1, "CL")
+
+    assert form is None

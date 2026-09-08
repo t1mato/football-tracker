@@ -241,6 +241,27 @@ def get_team_competitions(con: duckdb.DuckDBPyConnection, team_id: int) -> pd.Da
     ).df()
 
 
+def get_team_form(
+    con: duckdb.DuckDBPyConnection, team_id: int, competition_code: str
+) -> pd.Series | None:
+    """mart_team_form has no row at all for a team with zero counted
+    results this season/competition -- not a null-valued row. None here
+    means exactly that, and the page must show a message, not an empty
+    form string.
+    """
+    df = con.execute(
+        """
+        select last_5_results, wins, draws, losses, goals_for, goals_against
+        from mart_team_form
+        where team_id = ? and competition_code = ?
+        """,
+        [team_id, competition_code],
+    ).df()
+    if df.empty:
+        return None
+    return df.iloc[0]
+
+
 def get_match_detail(
     con: duckdb.DuckDBPyConnection, match_id: int
 ) -> pd.Series | None:
