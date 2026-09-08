@@ -14,6 +14,7 @@ from app.formatting import (
     format_stat,
     format_weather,
     match_display,
+    season_label,
     venue_is_resolved,
 )
 
@@ -182,6 +183,24 @@ def test_format_stat_returns_empty_string_for_a_null_float() -> None:
     import math
 
     assert format_stat(math.nan, ".1f") == ""
+
+
+def test_season_label_formats_a_normal_calendar_year_season() -> None:
+    start = pd.Timestamp("2024-08-16")
+    end = pd.Timestamp("2025-05-25")
+
+    assert season_label(start, end) == "2024/25"
+
+
+def test_season_label_pads_a_single_digit_end_year() -> None:
+    """str(2009)[-2:] is "09", not "9" -- confirm the slicing genuinely
+    zero-pads rather than happening to look right only for the two-digit
+    years this project's real data currently has.
+    """
+    start = pd.Timestamp("2008-08-01")
+    end = pd.Timestamp("2009-05-01")
+
+    assert season_label(start, end) == "2008/09"
 
 
 def test_format_weather_handles_no_data_type_without_crashing() -> None:

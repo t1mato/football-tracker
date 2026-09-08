@@ -4,6 +4,7 @@ season of a competition, per PLAN.md item 7.
 
 import streamlit as st
 
+from app.formatting import season_label
 from app.queries import (
     get_competition_seasons,
     get_competitions,
@@ -24,12 +25,20 @@ selected_comp_code = competitions.loc[
     competitions["competition_name"] == selected_comp_name, "competition_code"
 ].iloc[0]
 
-seasons = get_competition_seasons(con, selected_comp_code)
-season_labels = [
-    f"{row.start_date.year}/{str(row.end_date.year)[-2:]}" for row in seasons.itertuples()
-]
-selected_label = st.selectbox("Season", season_labels)
-selected_season_id = int(seasons.iloc[season_labels.index(selected_label)]["season_id"])
+seasons = get_competition_seasons(con, selected_comp_code).set_index("season_id")
+if seasons.empty:
+    st.info("No seasons available for this competition.")
+    st.stop()
+
+selected_season_id = int(
+    st.selectbox(
+        "Season",
+        seasons.index,
+        format_func=lambda sid: season_label(
+            seasons.loc[sid, "start_date"], seasons.loc[sid, "end_date"]
+        ),
+    )
+)
 
 current_season_id = get_current_season_id(con, selected_comp_code)
 
@@ -52,7 +61,9 @@ else:
         st.caption(
             "Reconstructed from match results, not the official final table -- "
             "may not exactly match real-world tiebreakers (head-to-head record, "
-            "disciplinary points) or points deductions."
+            "disciplinary points) or points deductions, and teams tied on every "
+            "stat share a position number (e.g. two teams both shown as position "
+            "11, with none at position 12)."
         )
 
 st.subheader("Top Scorers")

@@ -984,7 +984,7 @@ def test_reconstructed_standings_passes_through_the_marts_own_position(
     con.execute("""
         insert into main.mart_standings_over_time values
             (1, 'PL', 2403, null, 1, 5, 0, 5, 1),
-            (2, 'PL', 2403, null, 1, 5, 0, 5, 2)
+            (2, 'PL', 2403, null, 1, 5, 0, 5, 1)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
@@ -992,13 +992,14 @@ def test_reconstructed_standings_passes_through_the_marts_own_position(
     rows = get_reconstructed_final_standings(con, "PL", 2403)
 
     # Team A and Team B are tied on every stat this query selects (points,
-    # goal_difference, goals_for), but the mart already resolved them to
-    # positions 1 and 2 -- this proves the query passes that through
-    # as-is rather than recomputing its own tie-break that would give
-    # both teams the same rank.
+    # goal_difference, goals_for). mart_standings_over_time computes
+    # position with rank(), so tied teams genuinely share a position --
+    # both 1, not split into 1 and 2. This proves the query passes that
+    # value through as-is rather than recomputing its own tie-break (e.g.
+    # via row_number(), which would arbitrarily split the tie).
     positions = dict(zip(rows["team_name"], rows["position"], strict=True))
     assert positions["Team A"] == 1
-    assert positions["Team B"] == 2
+    assert positions["Team B"] == 1
 
 
 def test_reconstructed_standings_keeps_each_groups_own_position_and_final_matchday(

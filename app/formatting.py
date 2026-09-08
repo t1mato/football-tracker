@@ -64,6 +64,14 @@ def format_stat(value: object, format_spec: str) -> str:
     return ""
 
 
+def season_label(start_date: object, end_date: object) -> str:
+    """Human-readable season label like "2024/25", derived from a
+    season's start/end dates -- season_id itself is an opaque
+    API-assigned integer with no calendar meaning to a reader.
+    """
+    return f"{start_date.year}/{str(end_date.year)[-2:]}"
+
+
 def venue_is_resolved(venue_needs_review: object) -> bool:
     """True only when a match's venue is both present and not flagged for
     review. `venue_needs_review` is null when the match's `venue_key` has no
