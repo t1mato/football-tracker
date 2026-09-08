@@ -15,5 +15,6 @@ pages = [
     st.Page("pages/head_to_head.py", title="Head-to-Head"),
     st.Page("pages/cross_league.py", title="Cross-League Dashboard"),
     st.Page("pages/season_archive.py", title="Season Archive"),
+    st.Page("pages/streaks_records.py", title="Streaks & Records"),
 ]
 st.navigation(pages).run()
