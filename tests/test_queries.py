@@ -17,6 +17,7 @@ import pandas as pd
 from app.queries import (
     get_competitions,
     get_current_season_id,
+    get_current_teams,
     get_match_detail,
     get_matches_for_picker,
     get_recent_matches,
@@ -337,3 +338,51 @@ def test_match_detail_returns_none_for_an_unknown_match_id(tmp_path: Path) -> No
     con = duckdb.connect(str(build_match_detail_db(tmp_path)), read_only=True)
 
     assert get_match_detail(con, 999) is None
+
+
+def build_team_profile_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.dim_teams (team_id bigint, team_name varchar);
+        create table main.dim_competitions (
+            competition_code varchar, competition_name varchar
+        );
+        create table main.dim_seasons (season_id integer, competition_code varchar);
+        create table main.fct_matches (
+            match_id bigint, competition_code varchar, season_id integer,
+            home_team_id bigint, away_team_id bigint
+        );
+        create table main.mart_team_form (
+            team_id bigint, competition_code varchar, last_5_results varchar,
+            wins integer, draws integer, losses integer,
+            goals_for integer, goals_against integer
+        );
+        create table main.mart_standings_over_time (
+            team_id bigint, competition_code varchar, season_id integer,
+            matchday integer, position integer
+        )
+    """)
+    con.close()
+    return db_path
+
+
+def test_current_teams_includes_home_and_away_current_season_appearances(
+    tmp_path: Path,
+) -> None:
+    db_path = build_team_profile_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B'), (3, 'Team C');
+        insert into main.dim_seasons values (2501, 'PL'), (2502, 'PL');
+        insert into main.fct_matches values
+            (1, 'PL', 2502, 1, 2),
+            (2, 'PL', 2501, 3, 1)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_current_teams(con)
+
+    assert set(rows["team_id"]) == {1, 2}
+    assert 3 not in set(rows["team_id"])

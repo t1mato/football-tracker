@@ -191,6 +191,33 @@ def get_matches_for_picker(
     ).df()
 
 
+def get_current_teams(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+    """Every team with at least one match, home or away, in ANY competition's
+    current season. UNION (not UNION ALL) dedupes a team appearing in both
+    positions across different matches.
+    """
+    return con.execute("""
+        select team_id, team_name from (
+            select f.home_team_id as team_id, t.team_name
+            from fct_matches f
+            join dim_teams t on f.home_team_id = t.team_id
+            where f.season_id = (
+                select max(season_id) from dim_seasons s2
+                where s2.competition_code = f.competition_code
+            )
+            union
+            select f.away_team_id as team_id, t.team_name
+            from fct_matches f
+            join dim_teams t on f.away_team_id = t.team_id
+            where f.season_id = (
+                select max(season_id) from dim_seasons s2
+                where s2.competition_code = f.competition_code
+            )
+        ) combined
+        order by team_name
+    """).df()
+
+
 def get_match_detail(
     con: duckdb.DuckDBPyConnection, match_id: int
 ) -> pd.Series | None:
