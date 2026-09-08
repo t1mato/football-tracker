@@ -120,8 +120,9 @@ def get_standings(
 
     table = con.execute(
         """
-        select f.position, t.team_id, t.team_name, f.played_games, f.won, f.draw,
-               f.lost, f.goals_for, f.goals_against, f.goal_difference, f.points, f.form
+        select f.position, t.team_name, f.played_games, f.won, f.draw,
+               f.lost, f.goals_for, f.goals_against, f.goal_difference, f.points, f.form,
+               t.team_id
         from fct_standings_snapshot f
         join dim_teams t on f.team_id = t.team_id
         where f.competition_code = ? and f.season_id = ? and f.snapshot_date = ?
@@ -242,7 +243,7 @@ def get_team_competitions(con: duckdb.DuckDBPyConnection, team_id: int) -> pd.Da
 
 
 def get_team_form(
-    con: duckdb.DuckDBPyConnection, team_id: int, competition_code: str
+    con: duckdb.DuckDBPyConnection, team_id: int, competition_code: str, season_id: int
 ) -> pd.Series | None:
     """mart_team_form has no row at all for a team with zero counted
     results this season/competition -- not a null-valued row. None here
@@ -253,9 +254,9 @@ def get_team_form(
         """
         select last_5_results, wins, draws, losses, goals_for, goals_against
         from mart_team_form
-        where team_id = ? and competition_code = ?
+        where team_id = ? and competition_code = ? and season_id = ?
         """,
-        [team_id, competition_code],
+        [team_id, competition_code, season_id],
     ).df()
     if df.empty:
         return None

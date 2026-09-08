@@ -33,14 +33,17 @@ if competitions.empty:
 for row in competitions.itertuples():
     st.subheader(row.competition_name)
 
-    standings = get_standings(con, row.competition_code, row.season_id)
+    standings = get_standings(con, row.competition_code, int(row.season_id))
     if standings.table is not None:
         team_row = standings.table[standings.table["team_id"] == selected_team_id]
-        st.dataframe(team_row, hide_index=True)
+        if team_row.empty:
+            st.info("Not in the latest published table for this competition yet.")
+        else:
+            st.dataframe(team_row, hide_index=True)
     else:
         st.info(standings.message)
 
-    form = get_team_form(con, selected_team_id, row.competition_code)
+    form = get_team_form(con, selected_team_id, row.competition_code, int(row.season_id))
     if form is not None:
         st.write(
             f"Last 5: {form['last_5_results']} "
@@ -50,7 +53,9 @@ for row in competitions.itertuples():
     else:
         st.info("No matches played yet this season in this competition.")
 
-    history = get_team_position_history(con, selected_team_id, row.competition_code, row.season_id)
+    history = get_team_position_history(
+        con, selected_team_id, row.competition_code, int(row.season_id)
+    )
     if history.empty:
         st.info("No position history to chart yet this season in this competition.")
     else:
@@ -63,7 +68,7 @@ for row in competitions.itertuples():
                 tooltip=["matchday", "position"],
             )
         )
-        st.altair_chart(chart, use_container_width=True)
+        st.altair_chart(chart, width="stretch")
         st.caption(
             "Reconstructed from match results, not the official table -- may drift "
             "from it (points deductions, tiebreakers not captured here), and omits "

@@ -357,8 +357,8 @@ def build_team_profile_db(tmp_path: Path) -> Path:
             home_team_id bigint, away_team_id bigint
         );
         create table main.mart_team_form (
-            team_id bigint, competition_code varchar, last_5_results varchar,
-            wins integer, draws integer, losses integer,
+            team_id bigint, competition_code varchar, season_id integer,
+            last_5_results varchar, wins integer, draws integer, losses integer,
             goals_for integer, goals_against integer
         );
         create table main.mart_standings_over_time (
@@ -432,12 +432,12 @@ def test_team_form_returns_the_row_when_one_exists(tmp_path: Path) -> None:
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.mart_team_form values
-            (1, 'PL', 'WWDLW', 3, 1, 1, 8, 4)
+            (1, 'PL', 2502, 'WWDLW', 3, 1, 1, 8, 4)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
 
-    form = get_team_form(con, 1, "PL")
+    form = get_team_form(con, 1, "PL", 2502)
 
     assert form is not None
     assert form["last_5_results"] == "WWDLW"
@@ -451,7 +451,26 @@ def test_team_form_returns_none_when_the_team_has_no_results_yet(tmp_path: Path)
     """
     con = duckdb.connect(str(build_team_profile_db(tmp_path)), read_only=True)
 
-    form = get_team_form(con, 1, "CL")
+    form = get_team_form(con, 1, "CL", 2601)
+
+    assert form is None
+
+
+def test_team_form_does_not_leak_a_different_seasons_row(tmp_path: Path) -> None:
+    """mart_team_form is scoped to (team_id, competition_code, season_id) --
+    a row from a prior season/competition edition must never be returned
+    for a different season_id, even for the same team+competition.
+    """
+    db_path = build_team_profile_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_team_form values
+            (1, 'CL', 1630, 'WDDWL', 2, 2, 1, 7, 6)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    form = get_team_form(con, 1, "CL", 2557)
 
     assert form is None
 

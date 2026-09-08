@@ -234,7 +234,7 @@ models:
     tests:
       - dbt_utils.unique_combination_of_columns:
           arguments:
-            combination_of_columns: [team_id, competition_code]
+            combination_of_columns: [team_id, competition_code, season_id]
     columns:
       - name: team_id
         tests:
@@ -250,6 +250,13 @@ models:
               arguments:
                 to: ref('dim_competitions')
                 field: competition_code
+      - name: season_id
+        tests:
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_seasons')
+                field: season_id
       - name: last_5_results
         tests: [not_null]
 
@@ -503,18 +510,25 @@ unit_tests:
       (not the DESC order used internally to pick the window) -- these are
       two different orderings computed from the same rows, and swapping
       one for the other is the natural mistake here. Previously verified
-      only by eyeballing one live team's result string.
+      only by eyeballing one live team's result string. Also includes a
+      7th result for the same team in a DIFFERENT season_id -- proving the
+      window is scoped per (team, competition, season) and not just
+      per (team, competition), which would silently pull that extra
+      result into the "last 5" and corrupt it.
     model: mart_team_form
     given:
       - input: ref('fct_team_matches')
         rows:
-          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-01', result: 'W'}
-          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-02', result: 'L'}
-          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-03', result: 'D'}
-          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-04', result: 'W'}
-          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-05', result: 'W'}
-          - {team_id: 950, competition_code: 'PL', kickoff_date_utc: '2024-01-06', result: 'L'}
+          - {team_id: 950, competition_code: 'PL', season_id: 2502, kickoff_date_utc: '2024-01-01', result: 'W'}
+          - {team_id: 950, competition_code: 'PL', season_id: 2502, kickoff_date_utc: '2024-01-02', result: 'L'}
+          - {team_id: 950, competition_code: 'PL', season_id: 2502, kickoff_date_utc: '2024-01-03', result: 'D'}
+          - {team_id: 950, competition_code: 'PL', season_id: 2502, kickoff_date_utc: '2024-01-04', result: 'W'}
+          - {team_id: 950, competition_code: 'PL', season_id: 2502, kickoff_date_utc: '2024-01-05', result: 'W'}
+          - {team_id: 950, competition_code: 'PL', season_id: 2502, kickoff_date_utc: '2024-01-06', result: 'L'}
+          - {team_id: 950, competition_code: 'PL', season_id: 2401, kickoff_date_utc: '2024-01-07', result: 'W'}
     expect:
       rows:
-        - {team_id: 950, competition_code: 'PL', last_5_results: 'LDWWL',
+        - {team_id: 950, competition_code: 'PL', season_id: 2502, last_5_results: 'LDWWL',
            wins: 2, draws: 1, losses: 2}
+        - {team_id: 950, competition_code: 'PL', season_id: 2401, last_5_results: 'W',
+           wins: 1, draws: 0, losses: 0}
