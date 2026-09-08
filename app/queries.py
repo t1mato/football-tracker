@@ -536,6 +536,7 @@ def get_streaks(con: duckdb.DuckDBPyConnection, competition_code: str) -> pd.Dat
     return con.execute(
         """
         select
+            s.team_id,
             t.team_name,
             s.current_win_streak,
             s.current_unbeaten_streak,
@@ -546,6 +547,36 @@ def get_streaks(con: duckdb.DuckDBPyConnection, competition_code: str) -> pd.Dat
         where s.competition_code = ?
         """,
         [competition_code],
+    ).df()
+
+
+def get_teams_in_season(
+    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """Every team with at least one match, home or away, in this specific
+    competition/season -- the same home+away UNION get_current_teams
+    already uses, scoped to one (competition, season) pair instead of
+    "any competition's current season". Built to filter get_streaks'
+    "Current Streaks" panel down to teams actually still in the
+    competition -- mart_streaks itself has no notion of "still
+    competing", so without this filter a team that left the
+    competition years ago (relegated, or eliminated from a prior
+    Champions League edition) renders indistinguishably from a
+    genuinely active team's current streak.
+    """
+    return con.execute(
+        """
+        select team_id from (
+            select home_team_id as team_id
+            from fct_matches
+            where competition_code = ? and season_id = ?
+            union
+            select away_team_id as team_id
+            from fct_matches
+            where competition_code = ? and season_id = ?
+        ) combined
+        """,
+        [competition_code, season_id, competition_code, season_id],
     ).df()
 
 

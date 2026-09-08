@@ -31,6 +31,7 @@ from app.queries import (
     get_team_competitions,
     get_team_form,
     get_team_position_history,
+    get_teams_in_season,
     get_top_scorers,
     get_upcoming_matches,
 )
@@ -1123,3 +1124,65 @@ def test_streaks_is_empty_when_the_competition_has_no_data(tmp_path: Path) -> No
     rows = get_streaks(con, "PL")
 
     assert rows.empty
+
+
+def test_teams_in_season_includes_home_and_away_appearances(tmp_path: Path) -> None:
+    """The same home+away UNION get_current_teams already uses, but scoped
+    to one (competition, season) pair. Team 1 appears only as home_team_id,
+    Team 2 only as away_team_id -- both sides of the UNION must be covered,
+    not just one.
+    """
+    db_path = build_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, 2, 1)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_teams_in_season(con, "PL", 2502)
+
+    assert set(rows["team_id"]) == {1, 2}
+
+
+def test_teams_in_season_excludes_a_different_season_of_the_same_competition(
+    tmp_path: Path,
+) -> None:
+    db_path = build_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2403, '2025-09-01 15:00:00', true, 'FINISHED', 1, 3, 2, 2),
+            (2, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 2, 1, 0, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_teams_in_season(con, "PL", 2502)
+
+    # Team 3 only ever appears in season 2403 (a prior season) -- it must
+    # not leak into the 2502 result just because it shares a competition
+    # with teams (1, 2) that genuinely played in 2502.
+    assert set(rows["team_id"]) == {1, 2}
+    assert 3 not in set(rows["team_id"])
+
+
+def test_teams_in_season_excludes_a_different_competition(tmp_path: Path) -> None:
+    db_path = build_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, 1, 0),
+            (2, 'CL', 2502, '2026-09-02 15:00:00', true, 'FINISHED', 2, 1, 0, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_teams_in_season(con, "PL", 2502)
+
+    # Both teams also appear in a CL match sharing the same season_id --
+    # the competition_code filter, not just season_id, must scope this.
+    assert set(rows["team_id"]) == {1, 2}
+    cl_rows = get_teams_in_season(con, "CL", 2502)
+    assert set(cl_rows["team_id"]) == {1, 2}
