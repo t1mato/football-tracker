@@ -1015,20 +1015,43 @@ def test_reconstructed_standings_keeps_each_groups_own_position_and_final_matchd
             (3, 'CL', 1630, 'GROUP_B', 1, 4, 3, 5, 1),
             (4, 'CL', 1630, 'GROUP_B', 1, 1, -3, 2, 2),
             (3, 'CL', 1630, 'GROUP_B', 2, 4, 3, 5, 1),
-            (4, 'CL', 1630, 'GROUP_B', 2, 4, 1, 6, 2)
+            (4, 'CL', 1630, 'GROUP_B', 2, 4, 1, 6, 2),
+            (3, 'CL', 1630, 'GROUP_B', 3, 7, 4, 8, 1),
+            (4, 'CL', 1630, 'GROUP_B', 3, 4, 2, 7, 2)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
 
     rows = get_reconstructed_final_standings(con, "CL", 1630)
 
-    # Both groups' own final matchday (2) is used independently -- not a
-    # single global max that could pick the wrong matchday if the groups
-    # had different lengths. Both groups have their own team at position
-    # 1, not collapsed into one combined ranking.
-    assert len(rows) == 4
-    assert set(rows.loc[rows["position"] == 1, "team_name"]) == {"Team A", "Team C"}
-    assert set(rows["group_name"]) == {"GROUP_A", "GROUP_B"}
+    # GROUP_A has final matchday 2; GROUP_B has final matchday 3. Each group's
+    # own final matchday must be used independently -- not a single global max
+    # that could pick one group's last matchday for every group. Verify:
+    # (1) exactly 4 rows (2 from GROUP_A's matchday 2, 2 from GROUP_B's matchday 3)
+    # (2) GROUP_A rows are at matchday 2 (not the earlier matchday 1)
+    # (3) GROUP_B rows are at matchday 3 (not the earlier matchdays 1 or 2)
+    # A buggy global-max implementation would drop GROUP_A entirely (no matchday-3
+    # rows) or include stale GROUP_A data, failing either the length check or
+    # the specific position/matchday assertions below.
+    assert len(rows) == 4, f"Expected 4 rows, got {len(rows)}"
+
+    group_a_rows = rows[rows["group_name"] == "GROUP_A"]
+    group_b_rows = rows[rows["group_name"] == "GROUP_B"]
+
+    assert len(group_a_rows) == 2, f"Expected 2 GROUP_A rows, got {len(group_a_rows)}"
+    assert len(group_b_rows) == 2, f"Expected 2 GROUP_B rows, got {len(group_b_rows)}"
+
+    # GROUP_A's matchday-2 position values: position 1 has 6 points, position 2 has 3 points
+    assert set(group_a_rows["points"]) == {6, 3}, \
+        f"GROUP_A should have points {{6, 3}} from matchday 2, got {set(group_a_rows['points'])}"
+    assert set(group_a_rows.loc[group_a_rows["position"] == 1, "team_name"]) == {"Team A"}
+    assert set(group_a_rows.loc[group_a_rows["position"] == 2, "team_name"]) == {"Team B"}
+
+    # GROUP_B's matchday-3 position values: position 1 has 7 points, position 2 has 4 points
+    assert set(group_b_rows["points"]) == {7, 4}, \
+        f"GROUP_B should have points {{7, 4}} from matchday 3, got {set(group_b_rows['points'])}"
+    assert set(group_b_rows.loc[group_b_rows["position"] == 1, "team_name"]) == {"Team C"}
+    assert set(group_b_rows.loc[group_b_rows["position"] == 2, "team_name"]) == {"Team D"}
 
 
 def test_reconstructed_standings_is_empty_when_the_season_has_no_data(
