@@ -14,5 +14,5 @@
 select current_setting('TimeZone') as session_timezone
 where current_setting('TimeZone') <> 'UTC'
 {% else %}
-select 1 where false
+select 1 as x limit 0
 {% endif %}

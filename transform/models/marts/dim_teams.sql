@@ -39,9 +39,9 @@ observed_teams as (
         row_number() over (partition by team_id order by team_name) as rn
     from (
         select home_team_id as team_id, home_team_name as team_name from {{ ref('stg_matches') }}
-        union
+        union distinct
         select away_team_id, away_team_name from {{ ref('stg_matches') }}
-        union
+        union distinct
         select team_id, team_name from {{ ref('stg_scorers') }}
     )
 ),

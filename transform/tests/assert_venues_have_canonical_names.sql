@@ -25,7 +25,7 @@
 #}
 with raw_names as (
     select venue_name from {{ ref('stg_teams') }} where venue_name is not null
-    union
+    union distinct
     select venue_name from {{ ref('stg_venues') }}
 )
 
