@@ -28,10 +28,10 @@ select
     {{ dbt.listagg("result", "''", "order by kickoff_date_utc asc, match_id asc") }} as last_5_results,
     -- case-when, not filter(where ...): BigQuery has no aggregate FILTER
     -- clause and dbt ships no cross-database macro for it.
-    sum(case when result = 'W' then 1 else 0 end) as wins,
-    sum(case when result = 'D' then 1 else 0 end) as draws,
-    sum(case when result = 'L' then 1 else 0 end) as losses,
-    sum(goals_for) as goals_for,
-    sum(goals_against) as goals_against
+    cast(sum(case when result = 'W' then 1 else 0 end) as {{ dbt.type_bigint() }}) as wins,
+    cast(sum(case when result = 'D' then 1 else 0 end) as {{ dbt.type_bigint() }}) as draws,
+    cast(sum(case when result = 'L' then 1 else 0 end) as {{ dbt.type_bigint() }}) as losses,
+    cast(sum(goals_for) as {{ dbt.type_bigint() }}) as goals_for,
+    cast(sum(goals_against) as {{ dbt.type_bigint() }}) as goals_against
 from last_five
 group by team_id, competition_code

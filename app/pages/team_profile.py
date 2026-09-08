@@ -58,7 +58,7 @@ for row in competitions.itertuples():
             alt.Chart(history)
             .mark_line(point=True, strokeWidth=2)
             .encode(
-                x=alt.X("matchday:Q", title="Matchday"),
+                x=alt.X("matchday:Q", title="Matchday", axis=alt.Axis(tickMinStep=1)),
                 y=alt.Y("position:Q", scale=alt.Scale(reverse=True), title="Position"),
                 tooltip=["matchday", "position"],
             )
