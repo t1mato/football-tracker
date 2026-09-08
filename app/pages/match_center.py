@@ -7,7 +7,7 @@ defaulted to it.
 import pandas as pd
 import streamlit as st
 
-from app.formatting import format_kickoff, format_score, format_weather
+from app.formatting import format_kickoff, format_score, format_weather, venue_is_resolved
 from app.queries import (
     get_competitions,
     get_connection,
@@ -21,7 +21,11 @@ st.title("Match Center")
 con = get_connection()
 
 query_match_id_raw = st.query_params.get("match_id")
-default_match_id = int(query_match_id_raw) if query_match_id_raw else None
+default_match_id = (
+    int(query_match_id_raw)
+    if query_match_id_raw and query_match_id_raw.isdigit()
+    else None
+)
 default_detail = get_match_detail(con, default_match_id) if default_match_id else None
 
 competitions = get_competitions(con)
@@ -68,14 +72,18 @@ if detail is None:
     st.stop()
 
 st.header(f"{detail['home_team_name']} vs {detail['away_team_name']}")
-st.caption(f"{selected_name} — Matchday {detail['matchday']}")
+if pd.notna(detail["matchday"]):
+    stage_label = f"Matchday {int(detail['matchday'])}"
+else:
+    stage_label = detail["stage"].replace("_", " ").title()
+st.caption(f"{selected_name} — {stage_label}")
 st.write(format_kickoff(detail))
 score = format_score(detail["full_time_home"], detail["full_time_away"])
 if score:
     st.write(f"Score: {score}")
 
 st.subheader("Venue")
-if pd.isna(detail["venue_needs_review"]) or detail["venue_needs_review"]:
+if not venue_is_resolved(detail["venue_needs_review"]):
     st.info("Venue location not yet resolved.")
 else:
     st.write(detail["venue_display_name"])
