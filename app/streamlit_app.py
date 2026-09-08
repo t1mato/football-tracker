@@ -11,5 +11,6 @@ pages = [
     st.Page("pages/competition_hub.py", title="Competition Hub"),
     st.Page("pages/match_center.py", title="Match Center"),
     st.Page("pages/team_profile.py", title="Team Profile"),
+    st.Page("pages/top_scorers.py", title="Top Scorers"),
 ]
 st.navigation(pages).run()
