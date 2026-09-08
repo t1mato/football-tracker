@@ -533,6 +533,50 @@ unit_tests:
         - {team_id: 950, competition_code: 'PL', season_id: 2401, last_5_results: 'W',
            wins: 1, draws: 0, losses: 0}
 
+  - name: cross_league_stats_averages_use_the_right_denominator
+    description: >
+      avg_goals_per_match/avg_goal_margin only count FINISHED matches
+      (AWARDED matches have no recorded score at all), while
+      finished_matches counts only FINISHED and decided_matches/
+      home_win_rate count FINISHED + AWARDED together -- a deliberate
+      asymmetry, not an oversight. A well-meaning "consistency" edit
+      giving the goals/margin CASE an else branch would silently change
+      the answer without any existing schema test catching it.
+    model: mart_cross_league_stats
+    given:
+      - input: ref('fct_team_matches')
+        rows:
+          - {match_id: 1, competition_code: 'PL', season_id: 2502, status: 'FINISHED',
+             is_home: true, goals_for: 2, goals_against: 1, result: 'W'}
+          - {match_id: 2, competition_code: 'PL', season_id: 2502, status: 'AWARDED',
+             is_home: true, goals_for: null, goals_against: null, result: 'L'}
+    expect:
+      rows:
+        - {competition_code: 'PL', season_id: 2502, finished_matches: 1,
+           decided_matches: 2, avg_goals_per_match: 3.0, avg_goal_margin: 1.0,
+           home_win_rate: 0.5}
+
+  - name: cross_league_stats_excludes_a_null_result_from_home_win_rate
+    description: >
+      An AWARDED match with a null winner (and therefore a null result --
+      see fct_team_matches.sql) must not be silently counted as a home
+      non-win. The exact CASE-absorbs-NULL bug class CLAUDE.md documents,
+      already found and fixed once in fct_team_matches.result itself.
+      Without the fix, this test's expected home_win_rate would be 0.5
+      (the null row averaged in as a false loss) instead of 1.0.
+    model: mart_cross_league_stats
+    given:
+      - input: ref('fct_team_matches')
+        rows:
+          - {match_id: 3, competition_code: 'PL', season_id: 2502, status: 'AWARDED',
+             is_home: true, goals_for: null, goals_against: null, result: null}
+          - {match_id: 4, competition_code: 'PL', season_id: 2502, status: 'FINISHED',
+             is_home: true, goals_for: 1, goals_against: 0, result: 'W'}
+    expect:
+      rows:
+        - {competition_code: 'PL', season_id: 2502, decided_matches: 2,
+           home_win_rate: 1.0}
+
   - name: head_to_head_collapses_reverse_fixture_and_attributes_wins_correctly
     description: >
       Two matches between the same pair, played with home/away reversed

@@ -2,9 +2,9 @@
 competition, per PLAN.md item 6.
 """
 
-import pandas as pd
 import streamlit as st
 
+from app.formatting import format_stat
 from app.queries import get_connection, get_cross_league_stats
 
 st.title("Cross-League Dashboard")
@@ -13,18 +13,18 @@ con = get_connection()
 stats = get_cross_league_stats(con)
 
 display = stats.copy()
-display["Matches Played"] = display["decided_matches"].apply(
-    lambda n: str(int(n)) if pd.notna(n) else ""
-)
+# format_stat renders these as strings (not numeric columns) so a null
+# shows as a genuinely blank cell instead of Streamlit's default "None"
+# text -- the cost is that st.dataframe's interactive column sort becomes
+# lexicographic, not numeric, on these four columns. Not visible with
+# today's low match counts, but will misorder once any competition passes
+# 99 decided matches this season (e.g. "100" sorting before "99").
+display["Matches Played"] = display["decided_matches"].apply(lambda n: format_stat(n, ".0f"))
 display["Avg Goals/Match"] = display["avg_goals_per_match"].apply(
-    lambda v: f"{v:.1f}" if pd.notna(v) else ""
+    lambda v: format_stat(v, ".1f")
 )
-display["Avg Goal Margin"] = display["avg_goal_margin"].apply(
-    lambda v: f"{v:.1f}" if pd.notna(v) else ""
-)
-display["Home Win %"] = display["home_win_rate"].apply(
-    lambda rate: f"{rate:.0%}" if pd.notna(rate) else ""
-)
+display["Avg Goal Margin"] = display["avg_goal_margin"].apply(lambda v: format_stat(v, ".1f"))
+display["Home Win %"] = display["home_win_rate"].apply(lambda v: format_stat(v, ".0%"))
 
 st.dataframe(
     display[

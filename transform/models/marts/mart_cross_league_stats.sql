@@ -40,6 +40,14 @@ select
     -- Outcome-based, not score-based, so AWARDED matches count here too --
     -- fct_team_matches.result already resolved them correctly via the
     -- winner field (fixed in the Phase 2b review).
-    avg(case when result = 'W' then 1.0 else 0.0 end) as home_win_rate
+    --
+    -- No bare `else` here: result CAN be null (an AWARDED match with a
+    -- null winner falls through every branch in fct_team_matches' CASE),
+    -- and averaging a null result in as `0.0` would silently count it as
+    -- a home non-win -- the same CASE-absorbs-NULL bug CLAUDE.md documents
+    -- by name, already found and fixed once in fct_team_matches.result
+    -- itself. A null result falls through to SQL's implicit NULL, which
+    -- avg() correctly excludes from both numerator and denominator.
+    avg(case when result = 'W' then 1.0 when result in ('L', 'D') then 0.0 end) as home_win_rate
 from home_side
 group by competition_code, season_id

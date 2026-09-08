@@ -48,6 +48,22 @@ def format_weather(
     )
 
 
+def format_stat(value: object, format_spec: str) -> str:
+    """Formats a nullable numeric stat for display, blank instead of a
+    literal "None" -- st.dataframe renders NaN/pd.NA/None as visible
+    "None" text by default (confirmed live against a not-yet-started
+    competition's row), not an empty cell, so the null check has to
+    happen before the value ever reaches the widget.
+
+    format_spec is a standard Python format-spec string (e.g. ".0f",
+    ".1f", ".0%") -- the same mini-language f-strings use, so callers
+    read naturally as format_stat(value, ".1f") mirroring f"{value:.1f}".
+    """
+    if pd.notna(value):
+        return format(value, format_spec)
+    return ""
+
+
 def venue_is_resolved(venue_needs_review: object) -> bool:
     """True only when a match's venue is both present and not flagged for
     review. `venue_needs_review` is null when the match's `venue_key` has no

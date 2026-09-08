@@ -11,6 +11,7 @@ import pandas as pd
 from app.formatting import (
     format_kickoff,
     format_score,
+    format_stat,
     format_weather,
     match_display,
     venue_is_resolved,
@@ -154,6 +155,33 @@ def test_venue_is_resolved_is_false_when_flagged_for_review() -> None:
 
 def test_venue_is_resolved_is_true_when_resolved_and_not_flagged() -> None:
     assert venue_is_resolved(False) is True
+
+
+def test_format_stat_formats_a_present_value() -> None:
+    assert format_stat(3.944444, ".1f") == "3.9"
+
+
+def test_format_stat_formats_a_percentage() -> None:
+    assert format_stat(0.555556, ".0%") == "56%"
+
+
+def test_format_stat_formats_a_whole_number_with_no_decimal_point() -> None:
+    assert format_stat(18, ".0f") == "18"
+
+
+def test_format_stat_returns_empty_string_for_a_null_int64_value() -> None:
+    """DuckDB's nullable Int64 columns surface as pandas.NA, not None or
+    NaN -- reproduce that exact shape, matching the pattern this file
+    already uses for format_score's null tests.
+    """
+    value = pd.array([None], dtype="Int64")[0]
+    assert format_stat(value, ".0f") == ""
+
+
+def test_format_stat_returns_empty_string_for_a_null_float() -> None:
+    import math
+
+    assert format_stat(math.nan, ".1f") == ""
 
 
 def test_format_weather_handles_no_data_type_without_crashing() -> None:

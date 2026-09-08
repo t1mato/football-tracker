@@ -798,6 +798,17 @@ def test_cross_league_stats_has_exactly_one_row_per_competition(tmp_path: Path) 
     assert set(rows["competition_name"]) == {"Premier League", "UEFA Champions League"}
 
 
+def test_cross_league_stats_returns_the_expected_columns(tmp_path: Path) -> None:
+    con = duckdb.connect(str(build_cross_league_db(tmp_path)), read_only=True)
+
+    rows = get_cross_league_stats(con)
+
+    assert list(rows.columns) == [
+        "competition_name", "decided_matches", "avg_goals_per_match",
+        "avg_goal_margin", "home_win_rate",
+    ]
+
+
 def build_head_to_head_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "test.duckdb"
     con = duckdb.connect(str(db_path))
