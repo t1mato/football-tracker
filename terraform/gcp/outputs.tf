@@ -7,3 +7,8 @@ output "pipeline_runner_email" {
   value       = google_service_account.pipeline_runner.email
   description = "Service account both Cloud Run Jobs run as."
 }
+
+output "secret_id" {
+  value       = google_secret_manager_secret.football_data_token.secret_id
+  description = "Secret Manager secret ID -- add the real token with `gcloud secrets versions add`."
+}

@@ -71,3 +71,21 @@ resource "google_project_iam_member" "pipeline_runner_bq_jobs" {
   role    = "roles/bigquery.jobUser"
   member  = "serviceAccount:${google_service_account.pipeline_runner.email}"
 }
+
+resource "google_secret_manager_secret" "football_data_token" {
+  project   = var.project_id
+  secret_id = "football-data-api-token"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secret_manager]
+}
+
+resource "google_secret_manager_secret_iam_member" "pipeline_runner_secret_access" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.football_data_token.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.pipeline_runner.email}"
+}
