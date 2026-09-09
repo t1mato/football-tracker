@@ -672,3 +672,21 @@ def test_matches_pins_group_and_winner_as_text_so_a_thin_season_keeps_the_column
 
     assert columns["group"]["data_type"] == "text"
     assert columns["winner"]["data_type"] == "text"
+
+
+@responses.activate
+def test_seasons_pins_winner_team_id_as_bigint_so_an_in_progress_season_keeps_the_column() -> None:
+    """`winner_team_id` is null for every season still in progress (confirmed
+    against BigQuery: the real `raw.seasons` table has no `winner_team_id`
+    column at all, because every load so far has only ever carried the
+    current, unfinished season). Same failure mode as `standings.form` and
+    `matches.group`/`winner` -- pin the type explicitly so the destination
+    table's shape doesn't depend on whether the first load happens to
+    include a completed season.
+    """
+    source = football_data_source(client=make_client(), seasons=(2026,),
+                                  run_date=date(2026, 9, 3))
+
+    columns = source.resources["seasons"].columns
+
+    assert columns["winner_team_id"]["data_type"] == "bigint"

@@ -129,19 +129,32 @@ def run_weather(db_path: Path = DEFAULT_DB_PATH) -> Any:
 
 
 def run_transform() -> subprocess.CompletedProcess[str]:
-    """Runs `dbt build --target prod`, excluding stg_match_weather and its
-    descendant fct_match_weather -- the same exclusion
-    orchestration/definitions.py's star_schema_build already applies
-    locally, because weather isn't wired to BigQuery yet (run_weather()
-    raises NotImplementedError under PIPELINE_DESTINATION=bigquery). A
-    plain `dbt build --target prod` would fail trying to build those two
-    models against a raw.match_weather table nothing has ever populated
-    in BigQuery.
+    """Runs `dbt build --target prod`, excluding everything descended from
+    (or attached to) the raw.match_weather source, because weather isn't
+    wired to BigQuery yet (run_weather() raises NotImplementedError under
+    PIPELINE_DESTINATION=bigquery) and nothing has ever populated a
+    raw.match_weather table there.
+
+    `--exclude source:raw.match_weather+` selects the source node itself,
+    both stg_match_weather/fct_match_weather models descended from it, and
+    its two source-attached generic tests (source_not_null_..., source_
+    unique_...) declared directly on it in _sources.yml. A plain `--exclude
+    stg_match_weather+` (the model, not the source) misses those source
+    tests entirely -- they're upstream siblings of stg_match_weather, not
+    its descendants, so `+` on the model never reaches them. Confirmed live
+    against football-tracker-508022: with the model-only exclusion, `dbt
+    build --target prod` failed on exactly those two source tests
+    ("Not found: Table ...raw.match_weather was not found in location US").
+    The source-based selector is a strict superset of the model-based one
+    (verified via `dbt list`), so this is a straight replacement, not an
+    addition -- excluding the two harmless unit tests on the source is fine
+    since unit tests use inline fixtures, not live data, and are already
+    covered by `make ci`/`make tz-check`.
     """
     args = [
         str(DBT_EXECUTABLE), "build",
         "--target", "prod",
-        "--exclude", "stg_match_weather+",
+        "--exclude", "source:raw.match_weather+",
     ]
     result = subprocess.run(  # nosec B603 -- args is built entirely from
         # hardcoded strings (DBT_EXECUTABLE plus the literal flags/values

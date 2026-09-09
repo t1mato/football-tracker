@@ -88,11 +88,15 @@ def test_run_passes_destination_through_to_dlt_pipeline(
 def test_run_transform_invokes_dbt_build_with_prod_target_and_weather_exclusion(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """--exclude stg_match_weather+ matches star_schema_build's existing
-    exclusion in orchestration/definitions.py -- weather isn't wired to
-    BigQuery yet, so a plain `dbt build --target prod` would fail trying
-    to build stg_match_weather/fct_match_weather against an empty
-    raw.match_weather.
+    """--exclude source:raw.match_weather+ excludes the raw.match_weather
+    source node, its descendant models (stg_match_weather,
+    fct_match_weather), and its two source-attached generic tests --
+    weather isn't wired to BigQuery yet, so a plain `dbt build --target
+    prod` would fail trying to build/test against an empty raw.match_weather.
+    A model-only exclusion (`stg_match_weather+`) was tried first and found,
+    via a live run against football-tracker-508022, to miss the two
+    source-attached tests entirely (they're upstream siblings, not
+    descendants, of the model).
     """
     captured: dict[str, object] = {}
 
@@ -110,7 +114,7 @@ def test_run_transform_invokes_dbt_build_with_prod_target_and_weather_exclusion(
     assert captured["args"] == [
         str(DBT_EXECUTABLE), "build",
         "--target", "prod",
-        "--exclude", "stg_match_weather+",
+        "--exclude", "source:raw.match_weather+",
     ]
     kwargs = captured["kwargs"]
     assert kwargs["cwd"] == TRANSFORM_DIR  # type: ignore[index]

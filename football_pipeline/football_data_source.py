@@ -422,7 +422,19 @@ def football_data_source(
     def competitions() -> Iterator[dict[str, Any]]:
         yield from iter_competitions(cache, codes)
 
-    @dlt.resource(name="seasons", write_disposition="merge", primary_key="id")
+    @dlt.resource(
+        name="seasons",
+        write_disposition="merge",
+        primary_key="id",
+        # `winner_team_id` is null for every season still in progress
+        # (confirmed against BigQuery: `raw.seasons` had no `winner_team_id`
+        # column at all, because every load so far has only ever carried
+        # the current, unfinished season). Same failure mode as
+        # `standings.form` and `matches.group`/`winner` above -- pin the
+        # type explicitly so the column always exists, regardless of
+        # whether the first load happens to include a completed season.
+        columns={"winner_team_id": {"data_type": "bigint"}},
+    )
     def seasons_resource() -> Iterator[dict[str, Any]]:
         yield from iter_seasons(cache, seasons, codes)
 
