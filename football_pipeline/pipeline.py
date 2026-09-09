@@ -6,6 +6,7 @@ BigQuery, via PIPELINE_DESTINATION=bigquery).
 """
 
 import os
+import subprocess  # nosec B404 -- used only for a fixed dbt-build invocation, see run_transform below
 import sys
 import time
 import tomllib
@@ -27,6 +28,10 @@ from football_pipeline.weather_source import (
 
 SECRETS_PATH = Path(".dlt/secrets.toml")
 DEFAULT_DB_PATH = Path("football_data.duckdb")
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TRANSFORM_DIR = REPO_ROOT / "transform"
+DBT_EXECUTABLE = REPO_ROOT / ".venv" / "bin" / "dbt"
 
 # Bump this every August when the season rolls over. If it is left behind,
 # nightly runs keep requesting the stale season and fixtures silently stop
@@ -121,6 +126,33 @@ def run_weather(db_path: Path = DEFAULT_DB_PATH) -> Any:
     )
     source = weather_source(client=client, db_path=db_path)
     return pipeline.run(source)
+
+
+def run_transform() -> subprocess.CompletedProcess[str]:
+    """Runs `dbt build --target prod`, excluding stg_match_weather and its
+    descendant fct_match_weather -- the same exclusion
+    orchestration/definitions.py's star_schema_build already applies
+    locally, because weather isn't wired to BigQuery yet (run_weather()
+    raises NotImplementedError under PIPELINE_DESTINATION=bigquery). A
+    plain `dbt build --target prod` would fail trying to build those two
+    models against a raw.match_weather table nothing has ever populated
+    in BigQuery.
+    """
+    args = [
+        str(DBT_EXECUTABLE), "build",
+        "--target", "prod",
+        "--exclude", "stg_match_weather+",
+    ]
+    result = subprocess.run(  # nosec B603 -- args is built entirely from
+        # hardcoded strings (DBT_EXECUTABLE plus the literal flags/values
+        # above); no external/untrusted input reaches this call, and
+        # shell=True is deliberately not used. Same justification as
+        # orchestration/definitions.py._run_dbt_build.
+        args, cwd=TRANSFORM_DIR, capture_output=True, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"dbt build failed (exit {result.returncode}): {result.stderr}")
+    return result
 
 
 if __name__ == "__main__":

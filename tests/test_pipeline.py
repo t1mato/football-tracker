@@ -7,6 +7,8 @@ running the pipeline (this plan's Task 3), not by a mocked unit test.
 CI never calls a live API (see CLAUDE.md's Testing and CI section).
 """
 
+import subprocess
+
 import pytest
 
 from football_pipeline.pipeline import _destination
@@ -81,3 +83,46 @@ def test_run_passes_destination_through_to_dlt_pipeline(
 
     destination = captured_kwargs["destination"]
     assert destination.destination_name == "bigquery"  # type: ignore[attr-defined]
+
+
+def test_run_transform_invokes_dbt_build_with_prod_target_and_weather_exclusion(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """--exclude stg_match_weather+ matches star_schema_build's existing
+    exclusion in orchestration/definitions.py -- weather isn't wired to
+    BigQuery yet, so a plain `dbt build --target prod` would fail trying
+    to build stg_match_weather/fct_match_weather against an empty
+    raw.match_weather.
+    """
+    captured: dict[str, object] = {}
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("football_pipeline.pipeline.subprocess.run", fake_run)
+
+    from football_pipeline.pipeline import DBT_EXECUTABLE, TRANSFORM_DIR, run_transform
+
+    run_transform()
+
+    assert captured["args"] == [
+        str(DBT_EXECUTABLE), "build",
+        "--target", "prod",
+        "--exclude", "stg_match_weather+",
+    ]
+    kwargs = captured["kwargs"]
+    assert kwargs["cwd"] == TRANSFORM_DIR  # type: ignore[index]
+
+
+def test_run_transform_raises_on_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="boom")
+
+    monkeypatch.setattr("football_pipeline.pipeline.subprocess.run", fake_run)
+
+    from football_pipeline.pipeline import run_transform
+
+    with pytest.raises(RuntimeError, match="dbt build failed"):
+        run_transform()
