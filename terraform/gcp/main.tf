@@ -135,7 +135,10 @@ resource "google_cloud_run_v2_job" "ingest" {
     }
   }
 
-  depends_on = [google_project_service.run]
+  depends_on = [
+    google_project_service.run,
+    google_secret_manager_secret_iam_member.pipeline_runner_secret_access,
+  ]
 }
 
 resource "google_cloud_run_v2_job" "transform" {
