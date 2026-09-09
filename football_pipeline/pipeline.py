@@ -3,6 +3,9 @@ BigQuery, via PIPELINE_DESTINATION=bigquery).
 
     python -m football_pipeline.pipeline              # current season
     python -m football_pipeline.pipeline 2023 2024    # backfill
+    python -m football_pipeline.pipeline weather      # per-venue weather backfill
+    python -m football_pipeline.pipeline ingest       # current season only, explicit
+    python -m football_pipeline.pipeline transform    # dbt build --target prod
 """
 
 import os
@@ -146,10 +149,14 @@ def run_transform() -> subprocess.CompletedProcess[str]:
     build --target prod` failed on exactly those two source tests
     ("Not found: Table ...raw.match_weather was not found in location US").
     The source-based selector is a strict superset of the model-based one
-    (verified via `dbt list`), so this is a straight replacement, not an
-    addition -- excluding the two harmless unit tests on the source is fine
-    since unit tests use inline fixtures, not live data, and are already
-    covered by `make ci`/`make tz-check`.
+    (verified via `dbt list`): every node the old `stg_match_weather+`
+    selector excluded is still excluded, and the only thing this widens is
+    the two source-attached generic tests above. (fct_match_weather's own
+    two unit tests, declared in transform/models/marts/_marts.yml, are
+    unaffected either way -- they were already a stg_match_weather+
+    descendant under the old selector, so this change excludes nothing new
+    there. They're covered by `make ci`/`make tz-check` regardless, since
+    unit tests run against inline fixtures, not live data.)
     """
     args = [
         str(DBT_EXECUTABLE), "build",
@@ -161,10 +168,10 @@ def run_transform() -> subprocess.CompletedProcess[str]:
         # above); no external/untrusted input reaches this call, and
         # shell=True is deliberately not used. Same justification as
         # orchestration/definitions.py._run_dbt_build.
-        args, cwd=TRANSFORM_DIR, capture_output=True, text=True, check=False
+        args, cwd=TRANSFORM_DIR, text=True, check=False
     )
     if result.returncode != 0:
-        raise RuntimeError(f"dbt build failed (exit {result.returncode}): {result.stderr}")
+        raise RuntimeError(f"dbt build failed (exit {result.returncode}): {' '.join(args)}")
     return result
 
 

@@ -17,8 +17,13 @@ Two dbt build steps, not one -- there's a genuine dependency cycle through
 dbt) before it can run, and stg_match_weather (also built by dbt) needs
 weather_ingestion's output. One subprocess call to `dbt build` cannot pause
 partway through to wait for an external asset, so the manifest is split at
-that one seam (`stg_match_weather+` vs. everything else) into two separate
-invocations, with weather_ingestion materializing in between.
+that one seam (`source:raw.match_weather+` vs. everything else) into two
+separate invocations, with weather_ingestion materializing in between. The
+source, not the stg_match_weather model, is the selector root -- two
+generic tests are declared directly on the raw.match_weather source in
+_sources.yml, upstream of stg_match_weather, so a model-rooted `+` selector
+misses them (see football_pipeline.pipeline.run_transform's docstring for
+the same gap and how it was confirmed live).
 
 Assumes `dagster dev` (or any invocation of this module) runs from the repo
 root, same as `python -m football_pipeline.pipeline` already does today --
@@ -77,7 +82,7 @@ def star_schema_build(context: AssetExecutionContext) -> None:
     """Everything except stg_match_weather and its descendant, fct_match_weather --
     those need weather_ingestion's output first (see module docstring).
     """
-    _run_dbt_build(context, exclude="stg_match_weather+")
+    _run_dbt_build(context, exclude="source:raw.match_weather+")
 
 
 @asset(deps=[star_schema_build], group_name="ingestion")
@@ -94,7 +99,7 @@ def weather_dependent_build(context: AssetExecutionContext) -> None:
     """stg_match_weather and fct_match_weather -- the two models excluded
     from star_schema_build above.
     """
-    _run_dbt_build(context, select="stg_match_weather+")
+    _run_dbt_build(context, select="source:raw.match_weather+")
 
 
 defs = Definitions(
