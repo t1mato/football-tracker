@@ -41,3 +41,13 @@ resource "google_project_service" "iam" {
   service            = "iam.googleapis.com"
   disable_on_destroy = false
 }
+
+resource "google_artifact_registry_repository" "pipeline" {
+  project       = var.project_id
+  location      = var.region
+  repository_id = "football-tracker"
+  format        = "DOCKER"
+  description   = "Ingestion + transform pipeline image for Cloud Run Jobs."
+
+  depends_on = [google_project_service.artifact_registry]
+}
