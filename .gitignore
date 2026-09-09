@@ -30,6 +30,13 @@ orchestration/tmp*/
 # Scratch
 scratch/
 
+# Terraform
+terraform/**/.terraform/
+terraform/**/*.tfstate
+terraform/**/*.tfstate.*
+terraform/**/terraform.tfvars
+terraform/**/crash.log
+
 # Private working docs — design notes, roadmap, agent instructions
 CLAUDE.md
 PLAN.md
