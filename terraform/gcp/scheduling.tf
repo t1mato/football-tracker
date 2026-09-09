@@ -35,3 +35,14 @@ resource "google_project_iam_member" "orchestrator_workflows_invoker" {
   role    = "roles/workflows.invoker"
   member  = "serviceAccount:${google_service_account.pipeline_orchestrator.email}"
 }
+
+resource "google_workflows_workflow" "nightly_pipeline" {
+  project         = var.project_id
+  name            = "nightly-pipeline"
+  region          = var.region
+  description     = "Nightly ingest -> transform, in order, failing loudly if either step fails."
+  service_account = google_service_account.pipeline_orchestrator.id
+  source_contents = file("${path.module}/workflows/nightly_pipeline.yaml")
+
+  depends_on = [google_project_service.workflows]
+}
