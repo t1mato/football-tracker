@@ -653,3 +653,22 @@ def test_standings_pins_form_as_text_so_an_all_null_load_keeps_the_column() -> N
     columns = source.resources["standings"].columns
 
     assert columns["form"]["data_type"] == "text"
+
+
+@responses.activate
+def test_matches_pins_group_and_winner_as_text_so_a_thin_season_keeps_the_columns() -> None:
+    """`group` is null for every match in a group-less/barely-started season
+    (confirmed against BigQuery: the real `raw.matches` table has no `group`
+    column at all because dlt only materializes a column when at least one
+    row in a load has a non-null value for it) and `winner` is null until a
+    match finishes. Same failure mode as `standings.form` -- pin both
+    explicitly so the destination table's shape doesn't depend on how far
+    into the season the first load happened.
+    """
+    source = football_data_source(client=make_client(), seasons=(2026,),
+                                  run_date=date(2026, 9, 3))
+
+    columns = source.resources["matches"].columns
+
+    assert columns["group"]["data_type"] == "text"
+    assert columns["winner"]["data_type"] == "text"

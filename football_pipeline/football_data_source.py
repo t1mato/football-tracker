@@ -442,7 +442,23 @@ def football_data_source(
     def squad_observations() -> Iterator[dict[str, Any]]:
         yield from iter_squad_observations(cache, run_date, codes)
 
-    @dlt.resource(name="matches", write_disposition="merge", primary_key="id")
+    @dlt.resource(
+        name="matches",
+        write_disposition="merge",
+        primary_key="id",
+        # `group` is null for every match in a group-less or barely-started
+        # season (confirmed against real BigQuery: `raw.matches` had no
+        # `group` column at all because dlt only materializes a column when
+        # at least one row in a load has a non-null value for it), and
+        # `winner` is null until a match finishes. Same failure mode as
+        # `standings.form` above -- pin both explicitly so the destination
+        # table's shape doesn't depend on how far into the season the first
+        # load happened.
+        columns={
+            "group": {"data_type": "text"},
+            "winner": {"data_type": "text"},
+        },
+    )
     def matches() -> Iterator[dict[str, Any]]:
         yield from iter_matches(cache, seasons, codes)
 
