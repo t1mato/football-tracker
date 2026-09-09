@@ -126,3 +126,94 @@ def test_run_transform_raises_on_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(RuntimeError, match="dbt build failed"):
         run_transform()
+
+
+def test_main_ingest_mode_runs_current_season(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append(seasons))
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
+    )
+
+    from football_pipeline.pipeline import CURRENT_SEASON, main
+
+    main(["ingest"])
+
+    assert calls == [(CURRENT_SEASON,)]
+
+
+def test_main_transform_mode_runs_dbt_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append("run"))
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
+    )
+
+    from football_pipeline.pipeline import main
+
+    main(["transform"])
+
+    assert calls == ["transform"]
+
+
+def test_main_weather_mode_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pins the pre-existing "weather" branch so this refactor cannot
+    silently drop it.
+    """
+    calls: list[str] = []
+    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append("run"))
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
+    )
+
+    from football_pipeline.pipeline import main
+
+    main(["weather"])
+
+    assert calls == ["weather"]
+
+
+def test_main_bare_args_defaults_to_current_season(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pins today's bare `python -m football_pipeline.pipeline` behavior --
+    it must keep working identically after this refactor.
+    """
+    calls: list[object] = []
+    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append(seasons))
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
+    )
+
+    from football_pipeline.pipeline import CURRENT_SEASON, main
+
+    main([])
+
+    assert calls == [(CURRENT_SEASON,)]
+
+
+def test_main_season_args_still_backfills(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[object] = []
+    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append(seasons))
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
+    )
+
+    from football_pipeline.pipeline import main
+
+    main(["2023", "2024"])
+
+    assert calls == [(2023, 2024)]

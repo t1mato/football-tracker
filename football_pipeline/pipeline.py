@@ -155,10 +155,18 @@ def run_transform() -> subprocess.CompletedProcess[str]:
     return result
 
 
-if __name__ == "__main__":
-    if sys.argv[1:2] == ["weather"]:
+def main(argv: list[str]) -> None:
+    if argv[:1] == ["weather"]:
         print(run_weather())
+    elif argv[:1] == ["ingest"]:
+        print(run((CURRENT_SEASON,)))
+    elif argv[:1] == ["transform"]:
+        print(run_transform())
     else:
-        requested = tuple(int(a) for a in sys.argv[1:]) or (CURRENT_SEASON,)
+        requested = tuple(int(a) for a in argv) or (CURRENT_SEASON,)
         print(f"loading seasons: {requested}")
         print(run(requested))
+
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
