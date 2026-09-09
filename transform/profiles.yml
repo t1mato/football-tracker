@@ -46,3 +46,4 @@ football_tracker:
       dataset: main
       location: US
       threads: 4
+      maximum_bytes_billed: 1000000000  # 1 GB -- this project's whole warehouse is a handful of small tables; anything scanning more than this is a runaway query, not a real workload.

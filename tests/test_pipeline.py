@@ -47,3 +47,37 @@ def test_destination_switches_to_bigquery_when_set(
 
     assert dest.destination_name == "bigquery"
     assert dest.config_params.get("location") == "US"
+
+
+def test_run_passes_destination_through_to_dlt_pipeline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pins the one behavioral change this branch made to run() -- without
+    this test, reverting destination=_destination() back to the literal
+    "duckdb" would leave the entire suite green.
+    """
+    monkeypatch.setenv("PIPELINE_DESTINATION", "bigquery")
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_pipeline(**kwargs: object) -> object:
+        captured_kwargs.update(kwargs)
+
+        class FakePipeline:
+            def run(self, source: object) -> None:
+                return None
+
+        return FakePipeline()
+
+    monkeypatch.setattr("football_pipeline.pipeline.dlt.pipeline", fake_pipeline)
+    monkeypatch.setattr("football_pipeline.pipeline.build_client", lambda: object())
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.football_data_source",
+        lambda **kwargs: object(),
+    )
+
+    from football_pipeline.pipeline import run
+
+    run((2026,))
+
+    destination = captured_kwargs["destination"]
+    assert destination.destination_name == "bigquery"  # type: ignore[attr-defined]

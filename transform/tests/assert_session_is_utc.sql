@@ -9,6 +9,10 @@
   Note this only runs under dbt test/build. A bare dbt run with a bad
   session still produces wrong data, which is why correctness rests on the
   naive-timestamp normalisation in stg_matches rather than on this test.
+
+  The else branch below is permanently vacuous by design, not by oversight:
+  BigQuery has no session TimeZone setting to get wrong, so there is
+  nothing here for this test to assert.
 #}
 {% if target.type == 'duckdb' %}
 select current_setting('TimeZone') as session_timezone

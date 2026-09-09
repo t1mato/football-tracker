@@ -1,4 +1,5 @@
-"""dlt pipeline entrypoint. Loads football-data.org into DuckDB.
+"""dlt pipeline entrypoint. Loads football-data.org into DuckDB (or
+BigQuery, via PIPELINE_DESTINATION=bigquery).
 
     python -m football_pipeline.pipeline              # current season
     python -m football_pipeline.pipeline 2023 2024    # backfill
@@ -87,7 +88,25 @@ def run_weather(db_path: Path = DEFAULT_DB_PATH) -> Any:
     back into the same file -- destination must be pinned explicitly, since
     dlt's bare "duckdb" destination defaults to a file named after
     pipeline_name, not this project's actual warehouse file.
+
+    Deliberately ignores PIPELINE_DESTINATION -- always local DuckDB, never
+    BigQuery. select_matches_needing_weather() opens a direct, read-only
+    DuckDB connection to db_path to decide which matches need a weather
+    call, independent of dlt's destination entirely; parameterizing this
+    function's write side alone would not make that read work against
+    BigQuery. See docs/specs/2026-09-08-bigquery-destination-design.md's
+    "run_weather() is explicitly out of scope" section. The guard below
+    makes that scoping loud instead of silently writing to the wrong
+    place when PIPELINE_DESTINATION=bigquery is set.
     """
+    if os.environ.get("PIPELINE_DESTINATION") == "bigquery":
+        raise NotImplementedError(
+            "run_weather() does not support PIPELINE_DESTINATION=bigquery yet -- "
+            "select_matches_needing_weather() reads a local DuckDB file directly, "
+            "independent of the dlt destination. See "
+            "docs/specs/2026-09-08-bigquery-destination-design.md "
+            "for why this was scoped out of the BigQuery destination work."
+        )
     pipeline = dlt.pipeline(
         pipeline_name="football_weather",
         destination=dlt.destinations.duckdb(credentials=str(db_path)),
