@@ -72,3 +72,36 @@ resource "google_cloud_scheduler_job" "nightly_trigger" {
 
   depends_on = [google_project_service.cloud_scheduler]
 }
+
+resource "google_monitoring_notification_channel" "email_alert" {
+  project      = var.project_id
+  display_name = "Pipeline failure email"
+  type         = "email"
+  labels = {
+    email_address = "tnln3rd@gmail.com"
+  }
+}
+
+resource "google_monitoring_alert_policy" "nightly_pipeline_failed" {
+  project      = var.project_id
+  display_name = "Nightly pipeline workflow failed"
+  combiner     = "OR"
+
+  conditions {
+    display_name = "nightly-pipeline execution failed"
+
+    condition_threshold {
+      filter          = "metric.type=\"workflows.googleapis.com/finished_execution_count\" AND resource.type=\"workflows.googleapis.com/Workflow\" AND resource.label.workflow_id=\"${google_workflows_workflow.nightly_pipeline.name}\" AND metric.label.status=\"FAILED\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+
+      aggregations {
+        alignment_period   = "300s"
+        per_series_aligner = "ALIGN_SUM"
+      }
+    }
+  }
+
+  notification_channels = [google_monitoring_notification_channel.email_alert.id]
+}
