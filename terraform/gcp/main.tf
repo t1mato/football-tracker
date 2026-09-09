@@ -51,3 +51,23 @@ resource "google_artifact_registry_repository" "pipeline" {
 
   depends_on = [google_project_service.artifact_registry]
 }
+
+resource "google_service_account" "pipeline_runner" {
+  project      = var.project_id
+  account_id   = "pipeline-runner"
+  display_name = "Football pipeline Cloud Run Jobs runtime identity"
+
+  depends_on = [google_project_service.iam]
+}
+
+resource "google_project_iam_member" "pipeline_runner_bq_data" {
+  project = var.project_id
+  role    = "roles/bigquery.dataEditor"
+  member  = "serviceAccount:${google_service_account.pipeline_runner.email}"
+}
+
+resource "google_project_iam_member" "pipeline_runner_bq_jobs" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.pipeline_runner.email}"
+}
