@@ -89,3 +89,75 @@ resource "google_secret_manager_secret_iam_member" "pipeline_runner_secret_acces
   role      = "roles/secretmanager.secretAccessor"
   member    = "serviceAccount:${google_service_account.pipeline_runner.email}"
 }
+
+locals {
+  pipeline_image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.pipeline.repository_id}/pipeline:${var.image_tag}"
+}
+
+resource "google_cloud_run_v2_job" "ingest" {
+  name     = "ingest"
+  project  = var.project_id
+  location = var.region
+
+  template {
+    template {
+      service_account = google_service_account.pipeline_runner.email
+
+      containers {
+        image = local.pipeline_image
+        args  = ["ingest"]
+
+        env {
+          name  = "PIPELINE_DESTINATION"
+          value = "bigquery"
+        }
+        env {
+          name  = "GCP_PROJECT"
+          value = var.project_id
+        }
+
+        volume_mounts {
+          name       = "secrets"
+          mount_path = "/app/.dlt"
+        }
+      }
+
+      volumes {
+        name = "secrets"
+        secret {
+          secret = google_secret_manager_secret.football_data_token.secret_id
+          items {
+            version = "latest"
+            path    = "secrets.toml"
+          }
+        }
+      }
+    }
+  }
+
+  depends_on = [google_project_service.run]
+}
+
+resource "google_cloud_run_v2_job" "transform" {
+  name     = "transform"
+  project  = var.project_id
+  location = var.region
+
+  template {
+    template {
+      service_account = google_service_account.pipeline_runner.email
+
+      containers {
+        image = local.pipeline_image
+        args  = ["transform"]
+
+        env {
+          name  = "GCP_PROJECT"
+          value = var.project_id
+        }
+      }
+    }
+  }
+
+  depends_on = [google_project_service.run]
+}
