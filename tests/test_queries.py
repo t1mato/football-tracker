@@ -13,8 +13,10 @@ from pathlib import Path
 
 import duckdb
 import pandas as pd
+import pytest
 
 from app.queries import (
+    _app_destination,
     get_competition_seasons,
     get_competitions,
     get_cross_league_stats,
@@ -35,6 +37,143 @@ from app.queries import (
     get_top_scorers,
     get_upcoming_matches,
 )
+
+
+def test_app_destination_defaults_to_duckdb_with_no_env_var(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("APP_DESTINATION", raising=False)
+
+    assert _app_destination() == "duckdb"
+
+
+def test_app_destination_defaults_to_duckdb_for_any_other_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Only the exact string "bigquery" switches destinations -- anything
+    else (a typo, an unrelated value) must fail safe to the existing
+    local behavior, matching football_pipeline/pipeline.py's identical
+    _destination() precedent.
+    """
+    monkeypatch.setenv("APP_DESTINATION", "not-a-real-destination")
+
+    assert _app_destination() == "duckdb"
+
+
+def test_app_destination_switches_to_bigquery_when_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("APP_DESTINATION", "bigquery")
+
+    assert _app_destination() == "bigquery"
+
+
+class _FakeRow:
+    def __init__(self, values: tuple[object, ...]) -> None:
+        self._values = values
+
+    def values(self) -> tuple[object, ...]:
+        return self._values
+
+
+class _FakeQueryJob:
+    def __init__(self, df: pd.DataFrame, rows: list[_FakeRow]) -> None:
+        self._df = df
+        self._rows = rows
+
+    def to_dataframe(self) -> pd.DataFrame:
+        return self._df
+
+    def result(self) -> list[_FakeRow]:
+        return self._rows
+
+
+class _FakeBigQueryClient:
+    def __init__(self, job: _FakeQueryJob) -> None:
+        self._job = job
+        self.captured_sql: str | None = None
+        self.captured_job_config: object = None
+
+    def query(self, sql: str, job_config: object = None) -> _FakeQueryJob:
+        self.captured_sql = sql
+        self.captured_job_config = job_config
+        return self._job
+
+
+def test_bigquery_connection_execute_with_no_params_passes_sql_through() -> None:
+    from app.queries import BigQueryConnection
+
+    job = _FakeQueryJob(df=pd.DataFrame({"x": [1]}), rows=[])
+    client = _FakeBigQueryClient(job)
+    conn = BigQueryConnection(client)
+
+    conn.execute("select 1 as x")
+
+    assert client.captured_sql == "select 1 as x"
+    assert client.captured_job_config is None
+
+
+def test_bigquery_connection_execute_translates_positional_params() -> None:
+    from google.cloud import bigquery
+
+    from app.queries import BigQueryConnection
+
+    job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
+    client = _FakeBigQueryClient(job)
+    conn = BigQueryConnection(client)
+
+    conn.execute(
+        "select * from dim_seasons where competition_code = ? and season_id = ?",
+        ["PL", 2502],
+    )
+
+    assert (
+        client.captured_sql
+        == "select * from dim_seasons where competition_code = @p0 and season_id = @p1"
+    )
+    params = client.captured_job_config.query_parameters
+    assert len(params) == 2
+    assert isinstance(params[0], bigquery.ScalarQueryParameter)
+    assert params[0].name == "p0"
+    assert params[0].type_ == "STRING"
+    assert params[0].value == "PL"
+    assert params[1].name == "p1"
+    assert params[1].type_ == "INT64"
+    assert params[1].value == 2502
+
+
+def test_bigquery_connection_df_calls_to_dataframe() -> None:
+    from app.queries import BigQueryConnection
+
+    expected = pd.DataFrame({"x": [1, 2]})
+    job = _FakeQueryJob(df=expected, rows=[])
+    conn = BigQueryConnection(_FakeBigQueryClient(job))
+
+    result = conn.execute("select x from t").df()
+
+    pd.testing.assert_frame_equal(result, expected)
+
+
+def test_bigquery_connection_fetchone_returns_first_row_as_tuple() -> None:
+    from app.queries import BigQueryConnection
+
+    job = _FakeQueryJob(df=pd.DataFrame(), rows=[_FakeRow((2502,))])
+    conn = BigQueryConnection(_FakeBigQueryClient(job))
+
+    result = conn.execute("select max(season_id) from dim_seasons").fetchone()
+
+    assert result == (2502,)
+
+
+def test_bigquery_connection_fetchone_returns_none_when_no_rows() -> None:
+    from app.queries import BigQueryConnection
+
+    job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
+    conn = BigQueryConnection(_FakeBigQueryClient(job))
+
+    result = conn.execute("select 1 where false").fetchone()
+
+    assert result is None
 
 
 def build_db(tmp_path: Path) -> Path:

@@ -5,12 +5,76 @@ Read-only, always -- this project's DuckDB allows one writer or many
 readers, never both (see CLAUDE.md). This app must never hold a write lock.
 """
 
+import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import duckdb
 import pandas as pd
 import streamlit as st
+from google.cloud import bigquery
+
+
+def _app_destination() -> str:
+    return "bigquery" if os.environ.get("APP_DESTINATION") == "bigquery" else "duckdb"
+
+
+class CursorLike(Protocol):
+    def df(self) -> pd.DataFrame: ...
+    def fetchone(self) -> tuple[object, ...] | None: ...
+
+
+class ConnectionLike(Protocol):
+    def execute(
+        self, sql: str, params: list[object] | None = None
+    ) -> CursorLike: ...
+
+
+class _BigQueryCursor:
+    def __init__(self, job: "bigquery.QueryJob") -> None:
+        self._job = job
+
+    def df(self) -> pd.DataFrame:
+        return self._job.to_dataframe()
+
+    def fetchone(self) -> tuple[object, ...] | None:
+        row = next(iter(self._job.result()), None)
+        return tuple(row.values()) if row is not None else None
+
+
+class BigQueryConnection:
+    """Adapts google.cloud.bigquery.Client to the narrow slice of DuckDB's
+    connection interface app/queries.py actually uses --
+    .execute(sql, params) returning something with .df()/.fetchone(). No
+    query function or page needs to know which connection type it was
+    given.
+
+    Positional `?` placeholders (DuckDB's DB-API style, used throughout
+    this file) are translated to BigQuery's named `@pN` parameters here,
+    one adapter, rather than rewriting every query's SQL string.
+    """
+
+    def __init__(self, client: "bigquery.Client") -> None:
+        self._client = client
+
+    def execute(
+        self, sql: str, params: list[object] | None = None
+    ) -> _BigQueryCursor:
+        job_config = None
+        if params:
+            query_params = []
+            for i, value in enumerate(params):
+                name = f"p{i}"
+                sql = sql.replace("?", f"@{name}", 1)
+                type_ = "STRING" if isinstance(value, str) else "INT64"
+                query_params.append(
+                    bigquery.ScalarQueryParameter(name, type_, value)
+                )
+            job_config = bigquery.QueryJobConfig(query_parameters=query_params)
+        job = self._client.query(sql, job_config=job_config)
+        return _BigQueryCursor(job)
+
 
 DEFAULT_DB_PATH = Path("football_data.duckdb")
 
