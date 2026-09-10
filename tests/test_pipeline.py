@@ -8,6 +8,7 @@ CI never calls a live API (see CLAUDE.md's Testing and CI section).
 """
 
 import subprocess
+from pathlib import Path
 
 import pytest
 
@@ -221,3 +222,72 @@ def test_main_season_args_still_backfills(monkeypatch: pytest.MonkeyPatch) -> No
     main(["2023", "2024"])
 
     assert calls == [(2023, 2024)]
+
+
+def test_run_weather_uses_duckdb_selection_by_default(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("PIPELINE_DESTINATION", raising=False)
+    calls: list[str] = []
+
+    class FakePipeline:
+        def run(self, source: object) -> str:
+            return "ran"
+
+    monkeypatch.setattr("football_pipeline.pipeline.dlt.pipeline", lambda **kwargs: FakePipeline())
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.select_matches_needing_weather",
+        lambda db_path: calls.append("duckdb_select") or [],
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.select_matches_needing_weather_bigquery",
+        lambda client: calls.append("bigquery_select") or [],
+    )
+
+    from football_pipeline.pipeline import run_weather
+
+    run_weather(db_path=tmp_path / "test.duckdb")
+
+    assert calls == ["duckdb_select"]
+
+
+def test_run_weather_uses_bigquery_selection_and_destination_when_set(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pins the one behavioral change this task made to run_weather() --
+    without this test, reverting the PIPELINE_DESTINATION branch back to
+    always calling the DuckDB path would leave the suite green.
+    """
+    monkeypatch.setenv("PIPELINE_DESTINATION", "bigquery")
+    monkeypatch.setenv("GCP_PROJECT", "football-tracker-508022")
+    captured_kwargs: dict[str, object] = {}
+    calls: list[str] = []
+
+    class FakePipeline:
+        def run(self, source: object) -> str:
+            return "ran"
+
+    def fake_pipeline(**kwargs: object) -> object:
+        captured_kwargs.update(kwargs)
+        return FakePipeline()
+
+    monkeypatch.setattr("football_pipeline.pipeline.dlt.pipeline", fake_pipeline)
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.bigquery.Client", lambda project: object()
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.select_matches_needing_weather_bigquery",
+        lambda client: calls.append("bigquery_select") or [],
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.select_matches_needing_weather",
+        lambda db_path: calls.append("duckdb_select") or [],
+    )
+
+    from football_pipeline.pipeline import run_weather
+
+    run_weather()
+
+    assert calls == ["bigquery_select"]
+    destination = captured_kwargs["destination"]
+    assert destination.destination_name == "bigquery"  # type: ignore[attr-defined]

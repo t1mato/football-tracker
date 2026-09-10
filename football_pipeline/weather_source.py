@@ -345,11 +345,13 @@ def iter_match_weather(
 
 
 @dlt.source(name="weather")
-def weather_source(client: OpenMeteoClient, db_path: Path) -> Any:
-    """One merge resource. The selection query runs once, before dlt starts
-    consuming it -- there is exactly one workload decided per run.
+def weather_source(client: OpenMeteoClient, matches: list[MatchNeedingWeather]) -> Any:
+    """One merge resource over a pre-selected match list. The caller
+    decides which selection query to run (DuckDB or BigQuery -- see
+    run_weather() in pipeline.py) and passes the result in, since which
+    query to run depends on the destination, not on anything this source
+    itself needs to know.
     """
-    matches = select_matches_needing_weather(db_path)
 
     @dlt.resource(name="match_weather", write_disposition="merge", primary_key="match_id")
     def match_weather() -> Iterator[dict[str, Any]]:

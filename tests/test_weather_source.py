@@ -468,7 +468,9 @@ def test_the_source_exposes_one_merge_resource_keyed_on_match_id(tmp_path: Path)
     responses.get(ARCHIVE_HOST, json=ANFIELD_SEP_BODY, status=200)
 
     db_path = build_db(tmp_path)
-    source = weather_source(client=make_client(), db_path=db_path)
+    source = weather_source(
+        client=make_client(), matches=select_matches_needing_weather(db_path)
+    )
 
     assert set(source.resources) == {"match_weather"}
     resource = source.resources["match_weather"]

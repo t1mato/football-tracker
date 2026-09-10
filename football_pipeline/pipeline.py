@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any
 
 import dlt
+from google.cloud import bigquery
 
 from football_pipeline.client import FootballDataClient
 from football_pipeline.football_data_source import football_data_source
@@ -26,6 +27,8 @@ from football_pipeline.weather_source import (
     DEFAULT_LIMITER_CAPACITY,
     DEFAULT_LIMITER_PER_SECONDS,
     OpenMeteoClient,
+    select_matches_needing_weather,
+    select_matches_needing_weather_bigquery,
     weather_source,
 )
 
@@ -92,32 +95,25 @@ def run(seasons: tuple[int, ...]) -> Any:
 
 
 def run_weather(db_path: Path = DEFAULT_DB_PATH) -> Any:
-    """Reads fct_matches/dim_venues from db_path and writes raw.match_weather
-    back into the same file -- destination must be pinned explicitly, since
-    dlt's bare "duckdb" destination defaults to a file named after
-    pipeline_name, not this project's actual warehouse file.
-
-    Deliberately ignores PIPELINE_DESTINATION -- always local DuckDB, never
-    BigQuery. select_matches_needing_weather() opens a direct, read-only
-    DuckDB connection to db_path to decide which matches need a weather
-    call, independent of dlt's destination entirely; parameterizing this
-    function's write side alone would not make that read work against
-    BigQuery. See docs/specs/2026-09-08-bigquery-destination-design.md's
-    "run_weather() is explicitly out of scope" section. The guard below
-    makes that scoping loud instead of silently writing to the wrong
-    place when PIPELINE_DESTINATION=bigquery is set.
+    """Ingests Open-Meteo weather for matches needing it, into whichever
+    destination PIPELINE_DESTINATION selects -- local DuckDB by default,
+    BigQuery when set to "bigquery". Mirrors _destination()'s branch
+    exactly for the write side; the read side also has to branch, since
+    select_matches_needing_weather() queries the star schema directly
+    (there is no dlt "read arbitrary SQL" API to route through instead).
+    See docs/specs/2026-09-10-weather-on-bigquery-design.md.
     """
     if os.environ.get("PIPELINE_DESTINATION") == "bigquery":
-        raise NotImplementedError(
-            "run_weather() does not support PIPELINE_DESTINATION=bigquery yet -- "
-            "select_matches_needing_weather() reads a local DuckDB file directly, "
-            "independent of the dlt destination. See "
-            "docs/specs/2026-09-08-bigquery-destination-design.md "
-            "for why this was scoped out of the BigQuery destination work."
-        )
+        bq_client = bigquery.Client(project=os.environ["GCP_PROJECT"])
+        matches = select_matches_needing_weather_bigquery(bq_client)
+        destination = _destination()
+    else:
+        matches = select_matches_needing_weather(db_path)
+        destination = dlt.destinations.duckdb(credentials=str(db_path))
+
     pipeline = dlt.pipeline(
         pipeline_name="football_weather",
-        destination=dlt.destinations.duckdb(credentials=str(db_path)),
+        destination=destination,
         dataset_name="raw",
     )
     client = OpenMeteoClient(
@@ -127,7 +123,7 @@ def run_weather(db_path: Path = DEFAULT_DB_PATH) -> Any:
             clock=time.monotonic,
         )
     )
-    source = weather_source(client=client, db_path=db_path)
+    source = weather_source(client=client, matches=matches)
     return pipeline.run(source)
 
 
