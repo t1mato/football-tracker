@@ -173,6 +173,15 @@ resource "google_cloud_run_v2_job" "weather" {
   template {
     template {
       service_account = google_service_account.pipeline_runner.email
+      # Cloud Run Jobs' 600s default was measured live to be too short for the
+      # first-ever BigQuery weather run: run_weather() buffers everything
+      # (Open-Meteo calls, rate-limited) before dlt's load stage ever writes a
+      # row, so a timeout kill mid-run discards the whole attempt, not just
+      # the slow part -- confirmed live by two successive 600s-timeout kills
+      # that both left raw.match_weather nonexistent in BigQuery. 3600s covers
+      # a full current-season backlog with margin; nightly incremental runs
+      # will finish in a small fraction of it.
+      timeout = "3600s"
 
       containers {
         image = local.pipeline_image
