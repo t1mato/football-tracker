@@ -65,7 +65,7 @@ resource "google_cloud_scheduler_job" "nightly_trigger" {
       argument = jsonencode({})
     }))
 
-    oidc_token {
+    oauth_token {
       service_account_email = google_service_account.pipeline_orchestrator.email
     }
   }
