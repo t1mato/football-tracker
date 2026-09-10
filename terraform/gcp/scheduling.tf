@@ -40,7 +40,7 @@ resource "google_workflows_workflow" "nightly_pipeline" {
   project         = var.project_id
   name            = "nightly-pipeline"
   region          = var.region
-  description     = "Nightly ingest -> transform, in order, failing loudly if either step fails."
+  description     = "Nightly ingest -> transform -> weather -> transform, in order, failing loudly if any step fails."
   service_account = google_service_account.pipeline_orchestrator.id
   source_contents = file("${path.module}/workflows/nightly_pipeline.yaml")
 
