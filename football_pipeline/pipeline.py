@@ -5,7 +5,8 @@ BigQuery, via PIPELINE_DESTINATION=bigquery).
     python -m football_pipeline.pipeline 2023 2024    # backfill
     python -m football_pipeline.pipeline weather      # per-venue weather backfill
     python -m football_pipeline.pipeline ingest       # current season only, explicit
-    python -m football_pipeline.pipeline transform    # dbt build --target prod
+    python -m football_pipeline.pipeline transform    # dbt build --target prod, weather excluded
+    python -m football_pipeline.pipeline transform-weather  # dbt build, weather-dependent models
 """
 
 import os
@@ -129,10 +130,9 @@ def run_weather(db_path: Path = DEFAULT_DB_PATH) -> Any:
 
 def run_transform() -> subprocess.CompletedProcess[str]:
     """Runs `dbt build --target prod`, excluding everything descended from
-    (or attached to) the raw.match_weather source, because weather isn't
-    wired to BigQuery yet (run_weather() raises NotImplementedError under
-    PIPELINE_DESTINATION=bigquery) and nothing has ever populated a
-    raw.match_weather table there.
+    (or attached to) the raw.match_weather source. run_transform_weather(),
+    invoked as the next step in production's 4-step chain, builds those
+    weather-dependent models after run_weather() has populated raw.match_weather.
 
     `--exclude source:raw.match_weather+` selects the source node itself,
     both stg_match_weather/fct_match_weather models descended from it, and
@@ -171,6 +171,29 @@ def run_transform() -> subprocess.CompletedProcess[str]:
     return result
 
 
+def run_transform_weather() -> subprocess.CompletedProcess[str]:
+    """Builds stg_match_weather/fct_match_weather -- the slice
+    run_transform() excludes. Must run after both run_transform() and
+    run_weather() have completed in this order:
+    run_transform() -> run_weather() -> run_transform_weather(). Mirrors
+    orchestration/definitions.py's local weather_dependent_build asset
+    (`--select source:raw.match_weather+`).
+    """
+    args = [
+        str(DBT_EXECUTABLE), "build",
+        "--target", "prod",
+        "--select", "source:raw.match_weather+",
+    ]
+    result = subprocess.run(  # nosec B603 -- same justification as run_transform above:
+        # args is built entirely from hardcoded strings, no external input,
+        # shell=True not used.
+        args, cwd=TRANSFORM_DIR, text=True, check=False
+    )
+    if result.returncode != 0:
+        raise RuntimeError(f"dbt build failed (exit {result.returncode}): {' '.join(args)}")
+    return result
+
+
 def main(argv: list[str]) -> None:
     if argv[:1] == ["weather"]:
         print(run_weather())
@@ -178,6 +201,8 @@ def main(argv: list[str]) -> None:
         print(run((CURRENT_SEASON,)))
     elif argv[:1] == ["transform"]:
         print(run_transform())
+    elif argv[:1] == ["transform-weather"]:
+        print(run_transform_weather())
     else:
         requested = tuple(int(a) for a in argv) or (CURRENT_SEASON,)
         print(f"loading seasons: {requested}")

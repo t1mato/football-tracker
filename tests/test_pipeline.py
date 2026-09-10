@@ -1,10 +1,11 @@
-"""Tests for football_pipeline/pipeline.py's destination selection.
+"""Tests for football_pipeline/pipeline.py's destination selection and CLI modes.
 
 _destination() is the only piece of pipeline.py tested directly here --
-everything else (run(), run_weather(), build_client()) either makes live
-API calls or reads real local secrets, and is exercised by actually
-running the pipeline (this plan's Task 3), not by a mocked unit test.
-CI never calls a live API (see CLAUDE.md's Testing and CI section).
+run_weather()'s destination-branching logic is now unit-tested below.
+Everything else (run(), build_client()) either makes live API calls or
+reads real local secrets, and is exercised by actually running the
+pipeline, not by a mocked unit test. CI never calls a live API
+(see CLAUDE.md's Testing and CI section).
 """
 
 import subprocess
@@ -222,6 +223,69 @@ def test_main_season_args_still_backfills(monkeypatch: pytest.MonkeyPatch) -> No
     main(["2023", "2024"])
 
     assert calls == [(2023, 2024)]
+
+
+def test_run_transform_weather_invokes_dbt_build_with_weather_selection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Mirror of test_run_transform_invokes_dbt_build_with_prod_target_and_weather_exclusion,
+    but --select instead of --exclude -- this is the second dbt invocation
+    in production's now-4-step chain, run only after weather ingestion has
+    populated raw.match_weather.
+    """
+    captured: dict[str, object] = {}
+
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        captured["args"] = args
+        captured["kwargs"] = kwargs
+        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr("football_pipeline.pipeline.subprocess.run", fake_run)
+
+    from football_pipeline.pipeline import DBT_EXECUTABLE, TRANSFORM_DIR, run_transform_weather
+
+    run_transform_weather()
+
+    assert captured["args"] == [
+        str(DBT_EXECUTABLE), "build",
+        "--target", "prod",
+        "--select", "source:raw.match_weather+",
+    ]
+    kwargs = captured["kwargs"]
+    assert kwargs["cwd"] == TRANSFORM_DIR  # type: ignore[index]
+
+
+def test_run_transform_weather_raises_on_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="boom")
+
+    monkeypatch.setattr("football_pipeline.pipeline.subprocess.run", fake_run)
+
+    from football_pipeline.pipeline import run_transform_weather
+
+    with pytest.raises(RuntimeError, match="dbt build failed"):
+        run_transform_weather()
+
+
+def test_main_transform_weather_mode_runs_dbt_build(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append("run"))
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run_transform_weather",
+        lambda: calls.append("transform-weather"),
+    )
+
+    from football_pipeline.pipeline import main
+
+    main(["transform-weather"])
+
+    assert calls == ["transform-weather"]
 
 
 def test_run_weather_uses_duckdb_selection_by_default(
