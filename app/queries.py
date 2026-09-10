@@ -104,7 +104,14 @@ class StandingsResult:
 def get_connection(db_path: Path = DEFAULT_DB_PATH) -> ConnectionLike:
     """One read-only connection per Streamlit session, not one per rerun."""
     if _app_destination() == "bigquery":
-        return BigQueryConnection(bigquery.Client(project=os.environ["GCP_PROJECT"]))
+        project = os.environ["GCP_PROJECT"]
+        client = bigquery.Client(
+            project=project,
+            default_query_job_config=bigquery.QueryJobConfig(
+                default_dataset=f"{project}.main"
+            ),
+        )
+        return BigQueryConnection(client)
 
     con = duckdb.connect(str(db_path), read_only=True)
     # Load-bearing, not cosmetic -- same reasoning as transform/profiles.yml's
@@ -340,7 +347,7 @@ def get_current_teams(con: ConnectionLike) -> pd.DataFrame:
                 select max(season_id) from dim_seasons s2
                 where s2.competition_code = f.competition_code
             )
-            union
+            union distinct
             select f.away_team_id as team_id, t.team_name
             from fct_matches f
             join dim_teams t on f.away_team_id = t.team_id
@@ -648,7 +655,7 @@ def get_teams_in_season(
             select home_team_id as team_id
             from fct_matches
             where competition_code = ? and season_id = ?
-            union
+            union distinct
             select away_team_id as team_id
             from fct_matches
             where competition_code = ? and season_id = ?
