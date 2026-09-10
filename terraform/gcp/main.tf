@@ -164,3 +164,31 @@ resource "google_cloud_run_v2_job" "transform" {
 
   depends_on = [google_project_service.run]
 }
+
+resource "google_cloud_run_v2_job" "weather" {
+  name     = "weather"
+  project  = var.project_id
+  location = var.region
+
+  template {
+    template {
+      service_account = google_service_account.pipeline_runner.email
+
+      containers {
+        image = local.pipeline_image
+        args  = ["weather"]
+
+        env {
+          name  = "PIPELINE_DESTINATION"
+          value = "bigquery"
+        }
+        env {
+          name  = "GCP_PROJECT"
+          value = var.project_id
+        }
+      }
+    }
+  }
+
+  depends_on = [google_project_service.run]
+}
