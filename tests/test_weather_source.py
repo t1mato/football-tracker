@@ -22,6 +22,33 @@ from football_pipeline.weather_source import (
     weather_source,
 )
 
+
+class _FakeBigQueryJob:
+    def __init__(self, rows: list[tuple[object, ...]]) -> None:
+        self._rows = rows
+
+    def result(self) -> list[tuple[object, ...]]:
+        return self._rows
+
+
+class _FakeBigQueryClient:
+    """Dispatches by a distinguishing substring of the SQL text -- good
+    enough because select_matches_needing_weather_bigquery() only ever
+    issues one of two queries per call (the exists-check, then exactly
+    one of _SELECT_WITH_RAW/_SELECT_WITHOUT_RAW, never both).
+    """
+
+    def __init__(self, responses: dict[str, list[tuple[object, ...]]]) -> None:
+        self._responses = responses
+        self.queries: list[str] = []
+
+    def query(self, sql: str) -> _FakeBigQueryJob:
+        self.queries.append(sql)
+        for marker, rows in self._responses.items():
+            if marker in sql:
+                return _FakeBigQueryJob(rows)
+        raise AssertionError(f"unexpected query: {sql}")
+
 FORECAST_HOST = "https://api.open-meteo.com/v1/forecast"
 ARCHIVE_HOST = "https://archive-api.open-meteo.com/v1/archive"
 
@@ -497,3 +524,53 @@ def test_an_actual_reading_overwrites_an_earlier_forecast(tmp_path: Path) -> Non
     rows = con.execute("select data_type from raw.match_weather where match_id = 2").fetchall()
     con.close()
     assert rows == [("actual",)]
+
+
+def test_bigquery_exists_check_is_true_when_a_row_comes_back() -> None:
+    from football_pipeline.weather_source import _raw_match_weather_exists_bigquery
+
+    client = _FakeBigQueryClient({"INFORMATION_SCHEMA.TABLES": [(1,)]})
+
+    assert _raw_match_weather_exists_bigquery(client) is True
+
+
+def test_bigquery_exists_check_is_false_when_no_row_comes_back() -> None:
+    from football_pipeline.weather_source import _raw_match_weather_exists_bigquery
+
+    client = _FakeBigQueryClient({"INFORMATION_SCHEMA.TABLES": []})
+
+    assert _raw_match_weather_exists_bigquery(client) is False
+
+
+def test_select_matches_needing_weather_bigquery_uses_the_with_raw_query_when_the_table_exists() -> None:  # noqa: E501
+    from football_pipeline.weather_source import select_matches_needing_weather_bigquery
+
+    client = _FakeBigQueryClient({
+        "INFORMATION_SCHEMA.TABLES": [(1,)],
+        "left join raw.match_weather": [
+            (2, "anfield", "2026-09-20", 12, "TIMED", 53.4309, -2.9609),
+        ],
+    })
+
+    matches = select_matches_needing_weather_bigquery(client)
+
+    assert matches == [
+        MatchNeedingWeather(2, "anfield", "2026-09-20", 12, "TIMED", 53.4309, -2.9609)
+    ]
+
+
+def test_select_matches_needing_weather_bigquery_uses_the_without_raw_query_when_the_table_is_absent() -> None:  # noqa: E501
+    from football_pipeline.weather_source import select_matches_needing_weather_bigquery
+
+    client = _FakeBigQueryClient({
+        "INFORMATION_SCHEMA.TABLES": [],
+        "from main.fct_matches": [
+            (1, "anfield", "2026-09-01", 15, "FINISHED", 53.4309, -2.9609),
+        ],
+    })
+
+    matches = select_matches_needing_weather_bigquery(client)
+
+    assert matches == [
+        MatchNeedingWeather(1, "anfield", "2026-09-01", 15, "FINISHED", 53.4309, -2.9609)
+    ]

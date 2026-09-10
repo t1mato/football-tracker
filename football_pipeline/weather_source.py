@@ -9,7 +9,7 @@ changing anything here; it records why each decision was made.
 import logging
 import re
 import time
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from itertools import groupby
 from pathlib import Path
@@ -18,6 +18,7 @@ from typing import Any
 import dlt
 import duckdb
 import requests
+from google.cloud import bigquery
 
 from football_pipeline.rate_limiter import RateLimiter
 
@@ -75,18 +76,12 @@ def _raw_match_weather_exists(con: duckdb.DuckDBPyConnection) -> bool:
     return row is not None
 
 
-def select_matches_needing_weather(db_path: Path) -> list[MatchNeedingWeather]:
-    """Matches with a confirmed kickoff hour, a geocoded venue, no actual reading yet.
-
-    Read-only: this is ingestion deciding its own workload, the same way
-    iter_standings decides its own snapshot date, not a dbt model's job.
+def _rows_to_matches(rows: Iterable[Any]) -> list[MatchNeedingWeather]:
+    """Shared by the DuckDB and BigQuery selection paths -- both queries
+    return the same seven columns in the same order (see _SELECT_WITH_RAW/
+    _SELECT_WITHOUT_RAW), so the row shape is identical regardless of which
+    engine ran it.
     """
-    con = duckdb.connect(str(db_path), read_only=True)
-    try:
-        query = _SELECT_WITH_RAW if _raw_match_weather_exists(con) else _SELECT_WITHOUT_RAW
-        rows = con.execute(query).fetchall()
-    finally:
-        con.close()
     return [
         MatchNeedingWeather(
             match_id=r[0],
@@ -99,6 +94,55 @@ def select_matches_needing_weather(db_path: Path) -> list[MatchNeedingWeather]:
         )
         for r in rows
     ]
+
+
+def select_matches_needing_weather(db_path: Path) -> list[MatchNeedingWeather]:
+    """Matches with a confirmed kickoff hour, a geocoded venue, no actual reading yet.
+
+    Read-only: this is ingestion deciding its own workload, the same way
+    iter_standings decides its own snapshot date, not a dbt model's job.
+    """
+    con = duckdb.connect(str(db_path), read_only=True)
+    try:
+        query = _SELECT_WITH_RAW if _raw_match_weather_exists(con) else _SELECT_WITHOUT_RAW
+        rows = con.execute(query).fetchall()
+    finally:
+        con.close()
+    return _rows_to_matches(rows)
+
+
+def _raw_match_weather_exists_bigquery(client: bigquery.Client) -> bool:
+    rows = list(
+        client.query(
+            """
+            select 1 from raw.INFORMATION_SCHEMA.TABLES
+            where table_name = 'match_weather'
+            """
+        ).result()
+    )
+    return len(rows) > 0
+
+
+def select_matches_needing_weather_bigquery(
+    client: bigquery.Client,
+) -> list[MatchNeedingWeather]:
+    """BigQuery sibling of select_matches_needing_weather() -- same two
+    queries, run through a bigquery.Client instead of a direct
+    duckdb.connect(). No SQL changes: _SELECT_WITH_RAW/_SELECT_WITHOUT_RAW
+    are already schema-qualified (main.*, raw.*) and free of every
+    DuckDB/BigQuery portability trap this project has hit before (no bare
+    UNION, no WHERE without FROM), so the same query text runs unmodified
+    on both engines. No default_dataset needed on the client either --
+    unlike app/queries.py's problem, these queries already name
+    dataset.table explicitly.
+    """
+    query = (
+        _SELECT_WITH_RAW
+        if _raw_match_weather_exists_bigquery(client)
+        else _SELECT_WITHOUT_RAW
+    )
+    rows = list(client.query(query).result())
+    return _rows_to_matches(rows)
 
 
 class OutOfRangeError(Exception):
