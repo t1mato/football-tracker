@@ -65,6 +65,8 @@ resource "google_cloud_scheduler_job" "nightly_trigger" {
       argument = jsonencode({})
     }))
 
+    # oauth_token is for real Google APIs (*.googleapis.com); oidc_token is for
+    # third-party/self-hosted endpoints that validate the JWT themselves.
     oauth_token {
       service_account_email = google_service_account.pipeline_orchestrator.email
     }
@@ -91,6 +93,8 @@ resource "google_monitoring_alert_policy" "nightly_pipeline_failed" {
     display_name = "nightly-pipeline execution failed"
 
     condition_threshold {
+      # Confirmed against the real metric descriptor: the label is `status` (not
+      # `result`, despite the metric's own name), and the value is uppercase "FAILED".
       filter          = "metric.type=\"workflows.googleapis.com/finished_execution_count\" AND resource.type=\"workflows.googleapis.com/Workflow\" AND resource.label.workflow_id=\"${google_workflows_workflow.nightly_pipeline.name}\" AND metric.label.status=\"FAILED\""
       comparison      = "COMPARISON_GT"
       threshold_value = 0

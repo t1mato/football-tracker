@@ -2,6 +2,10 @@ main:
   params: [input]
   steps:
     - init:
+        # Workflows' ${...} expression language has no map/object literal syntax, so a
+        # default like ${default(map.get(input, "key"), {})} is illegal -- {} can only
+        # appear in plain YAML. Defaults are plain YAML maps instead, optionally
+        # overwritten below by the switch steps.
         assign:
           - project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
           - region: "us-central1"
@@ -19,6 +23,10 @@ main:
           - condition: ${"transform_overrides" in input}
             assign:
               - transform_overrides: ${input.transform_overrides}
+    # googleapis.run.v2...jobs.run raises its own OperationError when a single-task job
+    # execution fails, before run_ingest/run_transform even return -- check_ingest and
+    # check_transform below never see that case fire. They're defense-in-depth for a
+    # hypothetical multi-task job, not the mechanism catching today's failures.
     - run_ingest:
         call: googleapis.run.v2.projects.locations.jobs.run
         args:
@@ -28,7 +36,12 @@ main:
         result: ingest_execution
     - check_ingest:
         switch:
+          # proto3 JSON omits zero-valued fields entirely, so a successful execution has
+          # no failedCount key at all. Direct field access (execution.failedCount) would
+          # KeyError on every normal successful run, not just on failures.
           - condition: ${default(map.get(ingest_execution, "failedCount"), 0) > 0}
+            # Single-quoted: the literal ": " inside this string is otherwise ambiguous
+            # with YAML's own key/value separator.
             raise: '${"ingest job execution failed: " + ingest_execution.name}'
     - run_transform:
         call: googleapis.run.v2.projects.locations.jobs.run
@@ -39,7 +52,11 @@ main:
         result: transform_execution
     - check_transform:
         switch:
+          # See check_ingest above: proto3 JSON drops zero-valued fields, so a healthy
+          # execution has no failedCount key -- default() avoids a KeyError on success.
           - condition: ${default(map.get(transform_execution, "failedCount"), 0) > 0}
+            # Single-quoted for the same reason as check_ingest's raise: unquoted, the
+            # ": " inside the string collides with YAML's key/value separator.
             raise: '${"transform job execution failed: " + transform_execution.name}'
     - finish:
         return: "nightly pipeline succeeded"
