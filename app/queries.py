@@ -101,8 +101,11 @@ class StandingsResult:
 
 
 @st.cache_resource
-def get_connection(db_path: Path = DEFAULT_DB_PATH) -> duckdb.DuckDBPyConnection:
+def get_connection(db_path: Path = DEFAULT_DB_PATH) -> ConnectionLike:
     """One read-only connection per Streamlit session, not one per rerun."""
+    if _app_destination() == "bigquery":
+        return BigQueryConnection(bigquery.Client(project=os.environ["GCP_PROJECT"]))
+
     con = duckdb.connect(str(db_path), read_only=True)
     # Load-bearing, not cosmetic -- same reasoning as transform/profiles.yml's
     # TimeZone: 'UTC' setting. fct_matches.kickoff_utc is TIMESTAMP WITH TIME
@@ -112,11 +115,16 @@ def get_connection(db_path: Path = DEFAULT_DB_PATH) -> duckdb.DuckDBPyConnection
     # formatter would print a wrong wall-clock time with a literal "UTC"
     # suffix, silently. This project is UTC end-to-end (see CLAUDE.md);
     # this is the one connection that hadn't yet been pinned to it.
+    #
+    # BigQuery needs no equivalent pin: google.cloud.bigquery's
+    # to_dataframe() already returns timezone-aware UTC timestamps by
+    # default (verified live, 2026-09-10, against this project's real
+    # production warehouse), so there is nothing to silently drift.
     con.execute("SET TimeZone='UTC'")
     return con
 
 
-def get_competitions(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+def get_competitions(con: ConnectionLike) -> pd.DataFrame:
     return con.execute("""
         select competition_code, competition_name
         from dim_competitions
@@ -125,7 +133,7 @@ def get_competitions(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
 
 def get_current_season_id(
-    con: duckdb.DuckDBPyConnection, competition_code: str
+    con: ConnectionLike, competition_code: str
 ) -> int:
     """The most recent season_id for this competition -- never hardcoded,
     so this never drifts from pipeline.py's CURRENT_SEASON (see the design
@@ -140,7 +148,7 @@ def get_current_season_id(
 
 
 def get_standings(
-    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+    con: ConnectionLike, competition_code: str, season_id: int
 ) -> StandingsResult:
     latest = con.execute(
         """
@@ -199,7 +207,7 @@ def get_standings(
 
 
 def get_recent_matches(
-    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+    con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     return con.execute(
         f"""
@@ -219,7 +227,7 @@ def get_recent_matches(
 
 
 def get_upcoming_matches(
-    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+    con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     return con.execute(
         f"""
@@ -239,7 +247,7 @@ def get_upcoming_matches(
 
 
 def get_matches_for_picker(
-    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+    con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """Every match in this competition/season, for a match-selection dropdown.
 
@@ -261,7 +269,7 @@ def get_matches_for_picker(
 
 
 def get_top_scorers(
-    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+    con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """fct_scorers already carries player_name/team_name denormalized on
     the fact row (the source API embeds scorer names directly, unlike
@@ -318,7 +326,7 @@ def get_top_scorers(
     ).df()
 
 
-def get_current_teams(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+def get_current_teams(con: ConnectionLike) -> pd.DataFrame:
     """Every team with at least one match, home or away, in ANY competition's
     current season. UNION (not UNION ALL) dedupes a team appearing in both
     positions across different matches.
@@ -345,7 +353,7 @@ def get_current_teams(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
     """).df()
 
 
-def get_team_competitions(con: duckdb.DuckDBPyConnection, team_id: int) -> pd.DataFrame:
+def get_team_competitions(con: ConnectionLike, team_id: int) -> pd.DataFrame:
     """Every competition this team has a current-season match in.
 
     DISTINCT is load-bearing here, unlike get_current_teams -- a team can
@@ -369,7 +377,7 @@ def get_team_competitions(con: duckdb.DuckDBPyConnection, team_id: int) -> pd.Da
 
 
 def get_team_form(
-    con: duckdb.DuckDBPyConnection, team_id: int, competition_code: str, season_id: int
+    con: ConnectionLike, team_id: int, competition_code: str, season_id: int
 ) -> pd.Series | None:
     """mart_team_form has no row at all for a team with zero counted
     results this season/competition -- not a null-valued row. None here
@@ -390,7 +398,7 @@ def get_team_form(
 
 
 def get_team_position_history(
-    con: duckdb.DuckDBPyConnection, team_id: int, competition_code: str, season_id: int
+    con: ConnectionLike, team_id: int, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """May legitimately be empty -- the reconstruction has nothing to chart
     yet (not started, or entirely in a non-league-table stage). The page
@@ -408,7 +416,7 @@ def get_team_position_history(
 
 
 def get_head_to_head(
-    con: duckdb.DuckDBPyConnection, team_1_id: int, team_2_id: int
+    con: ConnectionLike, team_1_id: int, team_2_id: int
 ) -> pd.Series | None:
     """mart_head_to_head stores one row per unordered pair, keyed
     team_a_id = least(...), team_b_id = greatest(...) (CLAUDE.md's
@@ -453,7 +461,7 @@ def get_head_to_head(
 
 
 def get_head_to_head_matches(
-    con: duckdb.DuckDBPyConnection, team_1_id: int, team_2_id: int
+    con: ConnectionLike, team_1_id: int, team_2_id: int
 ) -> pd.DataFrame:
     """Every FINISHED/AWARDED match between the pair, either team home,
     newest first, no cap. Same status filter mart_head_to_head.sql uses,
@@ -485,7 +493,7 @@ def get_head_to_head_matches(
     ).df()
 
 
-def get_cross_league_stats(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
+def get_cross_league_stats(con: ConnectionLike) -> pd.DataFrame:
     """One row per tracked competition (dim_competitions), always -- a
     competition with no decided matches in its current season (e.g. UEFA
     Champions League before its group stage starts) still appears, with
@@ -518,7 +526,7 @@ def get_cross_league_stats(con: duckdb.DuckDBPyConnection) -> pd.DataFrame:
 
 
 def get_competition_seasons(
-    con: duckdb.DuckDBPyConnection, competition_code: str
+    con: ConnectionLike, competition_code: str
 ) -> pd.DataFrame:
     """Every backfilled season for one competition, most recent first --
     the season picker's source. The page derives a human-readable
@@ -537,7 +545,7 @@ def get_competition_seasons(
 
 
 def get_reconstructed_final_standings(
-    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+    con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """A past season's final table, reconstructed from match results via
     mart_standings_over_time -- fct_standings_snapshot has zero rows for
@@ -588,7 +596,7 @@ def get_reconstructed_final_standings(
     ).df()
 
 
-def get_streaks(con: duckdb.DuckDBPyConnection, competition_code: str) -> pd.DataFrame:
+def get_streaks(con: ConnectionLike, competition_code: str) -> pd.DataFrame:
     """mart_streaks is grained at (team_id, competition_code) with no
     season_id -- deliberately, not an oversight (see the design doc):
     current_win_streak/current_unbeaten_streak must span a season
@@ -621,7 +629,7 @@ def get_streaks(con: duckdb.DuckDBPyConnection, competition_code: str) -> pd.Dat
 
 
 def get_teams_in_season(
-    con: duckdb.DuckDBPyConnection, competition_code: str, season_id: int
+    con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """Every team with at least one match, home or away, in this specific
     competition/season -- the same home+away UNION get_current_teams
@@ -651,7 +659,7 @@ def get_teams_in_season(
 
 
 def get_match_detail(
-    con: duckdb.DuckDBPyConnection, match_id: int
+    con: ConnectionLike, match_id: int
 ) -> pd.Series | None:
     """One match's full detail: teams, venue (nullable -- a needs_review
     venue has no coordinates), weather (nullable -- no row until ingested,
