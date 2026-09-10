@@ -71,6 +71,13 @@ class BigQueryConnection:
                 sql = sql.replace("?", f"@{name}", 1)
                 if isinstance(value, str):
                     type_ = "STRING"
+                elif isinstance(value, bool):
+                    type_ = "BOOL"
+                elif isinstance(value, datetime.datetime):
+                    raise TypeError(
+                        "BigQueryConnection has no datetime/Timestamp parameter support "
+                        f"yet -- got {type(value)!r}: {value!r}"
+                    )
                 elif isinstance(value, datetime.date):
                     type_ = "DATE"
                 elif isinstance(value, (int, np.integer)):
@@ -78,7 +85,8 @@ class BigQueryConnection:
                     value = int(value)
                 else:
                     raise TypeError(
-                        f"BigQueryConnection can't infer a query parameter type for {type(value)!r}: {value!r}"
+                        "BigQueryConnection can't infer a query parameter type for "
+                        f"{type(value)!r}: {value!r}"
                     )
                 query_params.append(
                     bigquery.ScalarQueryParameter(name, type_, value)
@@ -701,6 +709,10 @@ def get_match_detail(
         join dim_teams ht on f.home_team_id = ht.team_id
         join dim_teams aw on f.away_team_id = aw.team_id
         left join dim_venues v on f.venue_key = v.venue_key
+        -- On BigQuery, fct_match_weather is a manually-created, permanently-empty
+        -- stand-in (not managed by dbt) until weather ingestion gains real BigQuery
+        -- support -- rebuilding the BigQuery dataset from dbt alone will not
+        -- recreate this table.
         left join fct_match_weather w on f.match_id = w.match_id
         where f.match_id = ?
         """,

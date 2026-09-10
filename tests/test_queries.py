@@ -9,9 +9,11 @@ hand-built DuckDB fixture -- same pattern as tests/test_weather_source.py's
 build_db().
 """
 
+import datetime
 from pathlib import Path
 
 import duckdb
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -174,6 +176,85 @@ def test_bigquery_connection_fetchone_returns_none_when_no_rows() -> None:
     result = conn.execute("select 1 where false").fetchone()
 
     assert result is None
+
+
+def test_bigquery_connection_infers_date_param_type() -> None:
+    from google.cloud import bigquery
+
+    from app.queries import BigQueryConnection
+
+    job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
+    client = _FakeBigQueryClient(job)
+    conn = BigQueryConnection(client)
+
+    conn.execute(
+        "select * from t where snapshot_date = ?",
+        [datetime.date(2026, 9, 10)],
+    )
+
+    params = client.captured_job_config.query_parameters
+    assert len(params) == 1
+    assert isinstance(params[0], bigquery.ScalarQueryParameter)
+    assert params[0].type_ == "DATE"
+    assert params[0].value == datetime.date(2026, 9, 10)
+
+
+def test_bigquery_connection_coerces_numpy_int_to_plain_int() -> None:
+    """The specific bug this pins: numpy.int64 isn't JSON-serializable
+    directly, so BigQueryConnection must convert it to a native Python
+    int, not just infer the right type STRING for it.
+    """
+    from app.queries import BigQueryConnection
+
+    job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
+    client = _FakeBigQueryClient(job)
+    conn = BigQueryConnection(client)
+
+    conn.execute("select * from t where match_id = ?", [np.int64(558629)])
+
+    params = client.captured_job_config.query_parameters
+    assert params[0].type_ == "INT64"
+    assert params[0].value == 558629
+    assert type(params[0].value) is int
+    assert not isinstance(params[0].value, np.integer)
+
+
+def test_bigquery_connection_infers_bool_param_type() -> None:
+    from app.queries import BigQueryConnection
+
+    job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
+    client = _FakeBigQueryClient(job)
+    conn = BigQueryConnection(client)
+
+    conn.execute("select * from t where kickoff_time_confirmed = ?", [True])
+
+    params = client.captured_job_config.query_parameters
+    assert params[0].type_ == "BOOL"
+    assert params[0].value is True
+
+
+def test_bigquery_connection_raises_on_datetime_param() -> None:
+    from app.queries import BigQueryConnection
+
+    job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
+    client = _FakeBigQueryClient(job)
+    conn = BigQueryConnection(client)
+
+    with pytest.raises(TypeError):
+        conn.execute(
+            "select * from t where ts = ?", [datetime.datetime(2026, 9, 10, 12, 0)]
+        )
+
+
+def test_bigquery_connection_raises_on_an_uninferable_param_type() -> None:
+    from app.queries import BigQueryConnection
+
+    job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
+    client = _FakeBigQueryClient(job)
+    conn = BigQueryConnection(client)
+
+    with pytest.raises(TypeError):
+        conn.execute("select * from t where x = ?", [object()])
 
 
 def build_db(tmp_path: Path) -> Path:
