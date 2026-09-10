@@ -5,12 +5,14 @@ Read-only, always -- this project's DuckDB allows one writer or many
 readers, never both (see CLAUDE.md). This app must never hold a write lock.
 """
 
+import datetime
 import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
 
 import duckdb
+import numpy as np
 import pandas as pd
 import streamlit as st
 from google.cloud import bigquery
@@ -67,7 +69,17 @@ class BigQueryConnection:
             for i, value in enumerate(params):
                 name = f"p{i}"
                 sql = sql.replace("?", f"@{name}", 1)
-                type_ = "STRING" if isinstance(value, str) else "INT64"
+                if isinstance(value, str):
+                    type_ = "STRING"
+                elif isinstance(value, datetime.date):
+                    type_ = "DATE"
+                elif isinstance(value, (int, np.integer)):
+                    type_ = "INT64"
+                    value = int(value)
+                else:
+                    raise TypeError(
+                        f"BigQueryConnection can't infer a query parameter type for {type(value)!r}: {value!r}"
+                    )
                 query_params.append(
                     bigquery.ScalarQueryParameter(name, type_, value)
                 )
@@ -514,6 +526,11 @@ def get_cross_league_stats(con: ConnectionLike) -> pd.DataFrame:
     """
     return con.execute(
         """
+        with current_seasons as (
+            select competition_code, max(season_id) as season_id
+            from dim_seasons
+            group by competition_code
+        )
         select
             c.competition_name,
             m.decided_matches,
@@ -521,12 +538,10 @@ def get_cross_league_stats(con: ConnectionLike) -> pd.DataFrame:
             m.avg_goal_margin,
             m.home_win_rate
         from dim_competitions c
+        left join current_seasons cs on cs.competition_code = c.competition_code
         left join mart_cross_league_stats m
           on m.competition_code = c.competition_code
-         and m.season_id = (
-             select max(season_id) from dim_seasons s
-             where s.competition_code = c.competition_code
-         )
+         and m.season_id = cs.season_id
         order by c.competition_name
         """
     ).df()
