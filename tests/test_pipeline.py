@@ -1,11 +1,12 @@
 """Tests for football_pipeline/pipeline.py's destination selection and CLI modes.
 
-_destination() is the only piece of pipeline.py tested directly here --
-run_weather()'s destination-branching logic is now unit-tested below.
-Everything else (run(), build_client()) either makes live API calls or
-reads real local secrets, and is exercised by actually running the
-pipeline, not by a mocked unit test. CI never calls a live API
-(see CLAUDE.md's Testing and CI section).
+Directly tested here: _destination(), run()'s destination pass-through,
+run_weather()'s destination branching, run_transform()/
+run_transform_weather()'s dbt-build invocations, and main()'s mode
+dispatch. run()'s, run_weather()'s, and build_client()'s actual live
+behavior is not -- they make real API calls or read real local secrets,
+and are exercised by actually running the pipeline, not by a mocked unit
+test. CI never calls a live API (see CLAUDE.md's Testing and CI section).
 """
 
 import subprocess

@@ -53,6 +53,9 @@ main:
         result: ingest_execution
     - check_ingest:
         switch:
+          # proto3 JSON omits zero-valued fields entirely, so a successful execution has
+          # no failedCount key at all. Direct field access (execution.failedCount) would
+          # KeyError on every normal successful run, not just on failures.
           - condition: ${default(map.get(ingest_execution, "failedCount"), 0) > 0}
             # Single-quoted: the literal ": " inside this string is otherwise ambiguous
             # with YAML's own key/value separator.
@@ -68,12 +71,21 @@ main:
         switch:
           - condition: ${default(map.get(transform_execution, "failedCount"), 0) > 0}
             raise: '${"transform job execution failed: " + transform_execution.name}'
+    # The weather Job's own timeout is 3600s (main.tf), but this connector call
+    # defaults to a 1800s end-to-end wait -- the connector's timeout must be >= the
+    # Job's timeout, or the Job's timeout is decorative because the connector gives up
+    # on the call first. Confirmed live: weather-8dw7s (a manual run that hit a real
+    # Open-Meteo read-timeout and got auto-retried by Cloud Run) took 2,112s, which
+    # would have tripped the 1800s default even though the Job itself went on to
+    # succeed. weather-s9rl4 (the normal nightly run) took 1,239s.
     - run_weather:
         call: googleapis.run.v2.projects.locations.jobs.run
         args:
           name: ${"projects/" + project_id + "/locations/" + region + "/jobs/weather"}
           body:
             overrides: ${weather_overrides}
+          connector_params:
+            timeout: 3600
         result: weather_execution
     - check_weather:
         switch:

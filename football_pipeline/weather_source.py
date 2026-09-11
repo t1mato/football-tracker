@@ -112,6 +112,13 @@ def select_matches_needing_weather(db_path: Path) -> list[MatchNeedingWeather]:
 
 
 def _raw_match_weather_exists_bigquery(client: bigquery.Client) -> bool:
+    # Unlike the DuckDB sibling's global information_schema.tables (which just
+    # returns zero rows for a schema that doesn't exist), raw.INFORMATION_SCHEMA.TABLES
+    # is dataset-scoped: if the `raw` dataset itself doesn't exist yet (not just the
+    # match_weather table within it), this raises a 404 "Dataset not found" instead of
+    # returning zero rows. Low-risk in practice -- the ingest job always creates `raw`
+    # before weather ever runs, per the Workflow's step order -- so this is documented
+    # rather than guarded.
     rows = list(
         client.query(
             """
