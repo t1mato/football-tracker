@@ -13,3 +13,8 @@ variable "image_tag" {
   type        = string
   description = "Git short SHA of the pipeline image to deploy. No default -- every apply must say explicitly which image it's shipping."
 }
+
+variable "app_image_tag" {
+  type        = string
+  description = "Git short SHA of the app image to deploy. No default -- every apply must say explicitly which image it's shipping."
+}

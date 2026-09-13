@@ -90,8 +90,29 @@ resource "google_secret_manager_secret_iam_member" "pipeline_runner_secret_acces
   member    = "serviceAccount:${google_service_account.pipeline_runner.email}"
 }
 
+resource "google_service_account" "app_runner" {
+  project      = var.project_id
+  account_id   = "app-runner"
+  display_name = "Streamlit app Cloud Run Service runtime identity -- read-only BigQuery access"
+
+  depends_on = [google_project_service.iam]
+}
+
+resource "google_project_iam_member" "app_runner_bq_viewer" {
+  project = var.project_id
+  role    = "roles/bigquery.dataViewer"
+  member  = "serviceAccount:${google_service_account.app_runner.email}"
+}
+
+resource "google_project_iam_member" "app_runner_bq_jobs" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.app_runner.email}"
+}
+
 locals {
   pipeline_image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.pipeline.repository_id}/pipeline:${var.image_tag}"
+  app_image      = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.pipeline.repository_id}/app:${var.app_image_tag}"
 }
 
 resource "google_cloud_run_v2_job" "ingest" {
@@ -200,4 +221,42 @@ resource "google_cloud_run_v2_job" "weather" {
   }
 
   depends_on = [google_project_service.run]
+}
+
+resource "google_cloud_run_v2_service" "app" {
+  name     = "app"
+  project  = var.project_id
+  location = var.region
+
+  template {
+    service_account = google_service_account.app_runner.email
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 2
+    }
+
+    containers {
+      image = local.app_image
+
+      env {
+        name  = "APP_DESTINATION"
+        value = "bigquery"
+      }
+      env {
+        name  = "GCP_PROJECT"
+        value = var.project_id
+      }
+    }
+  }
+
+  depends_on = [google_project_service.run]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "app_public" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.app.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }
