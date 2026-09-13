@@ -257,6 +257,32 @@ def test_bigquery_connection_raises_on_an_uninferable_param_type() -> None:
         conn.execute("select * from t where x = ?", [object()])
 
 
+def test_get_connection_caps_bigquery_bytes_billed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Public access + real BigQuery billing is a new combination for this
+    project -- a runaway or abusive query should fail cleanly, not run up
+    a real bill. 1GB matches transform/profiles.yml's existing
+    maximum_bytes_billed exactly (same reasoning: this warehouse is a
+    handful of small tables).
+    """
+    monkeypatch.setenv("APP_DESTINATION", "bigquery")
+    monkeypatch.setenv("GCP_PROJECT", "football-tracker-508022")
+    captured_kwargs: dict[str, object] = {}
+
+    def fake_client(**kwargs: object) -> object:
+        captured_kwargs.update(kwargs)
+        return object()
+
+    monkeypatch.setattr("app.queries.bigquery.Client", fake_client)
+
+    from app.queries import get_connection
+
+    get_connection.clear()  # st.cache_resource -- avoid a cached connection from an earlier test
+    get_connection()
+
+    job_config = captured_kwargs["default_query_job_config"]
+    assert job_config.maximum_bytes_billed == 1_000_000_000
+
+
 def build_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "test.duckdb"
     con = duckdb.connect(str(db_path))

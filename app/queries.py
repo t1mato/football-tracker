@@ -128,7 +128,14 @@ def get_connection(db_path: Path = DEFAULT_DB_PATH) -> ConnectionLike:
         client = bigquery.Client(
             project=project,
             default_query_job_config=bigquery.QueryJobConfig(
-                default_dataset=f"{project}.main"
+                default_dataset=f"{project}.main",
+                # This project's whole warehouse is a handful of small
+                # tables (same reasoning as transform/profiles.yml's
+                # identical cap) -- anything scanning more than this is a
+                # runaway query, not a real workload. New risk with a
+                # public URL specifically: nothing before this could run
+                # an arbitrary page-load query against real billing.
+                maximum_bytes_billed=1_000_000_000,
             ),
         )
         return BigQueryConnection(client)
