@@ -29,6 +29,7 @@ orchestration/tmp*/
 
 # Scratch
 scratch/
+.playwright-mcp/
 
 # Terraform
 terraform/**/.terraform/

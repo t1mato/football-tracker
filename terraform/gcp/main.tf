@@ -90,8 +90,29 @@ resource "google_secret_manager_secret_iam_member" "pipeline_runner_secret_acces
   member    = "serviceAccount:${google_service_account.pipeline_runner.email}"
 }
 
+resource "google_service_account" "app_runner" {
+  project      = var.project_id
+  account_id   = "app-runner"
+  display_name = "Streamlit app Cloud Run Service runtime identity -- read-only BigQuery access"
+
+  depends_on = [google_project_service.iam]
+}
+
+resource "google_project_iam_member" "app_runner_bq_viewer" {
+  project = var.project_id
+  role    = "roles/bigquery.dataViewer"
+  member  = "serviceAccount:${google_service_account.app_runner.email}"
+}
+
+resource "google_project_iam_member" "app_runner_bq_jobs" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.app_runner.email}"
+}
+
 locals {
   pipeline_image = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.pipeline.repository_id}/pipeline:${var.image_tag}"
+  app_image      = "${var.region}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.pipeline.repository_id}/app:${var.app_image_tag}"
 }
 
 resource "google_cloud_run_v2_job" "ingest" {
@@ -200,4 +221,70 @@ resource "google_cloud_run_v2_job" "weather" {
   }
 
   depends_on = [google_project_service.run]
+}
+
+resource "google_cloud_run_v2_service" "app" {
+  name     = "app"
+  project  = var.project_id
+  location = var.region
+  # Explicit, not left at the provider default (which happens to match) --
+  # "reachable from the public internet" is the single most load-bearing
+  # decision this resource makes and shouldn't be implied.
+  ingress = "INGRESS_TRAFFIC_ALL"
+
+  template {
+    service_account = google_service_account.app_runner.email
+
+    # Streamlit keeps per-session UI state (selected competition, filters,
+    # etc.) in the specific server process a browser's websocket first
+    # connected to. With max_instance_count > 1, a reconnect (network blip,
+    # backgrounded tab) that lands on the *other* instance has no memory of
+    # that session -- session_affinity keeps a browser pinned to the same
+    # instance across reconnects.
+    session_affinity = true
+
+    # Cloud Run's request timeout defaults to 300s and applies to long-lived
+    # connections, including the websocket Streamlit uses for live UI
+    # updates. Without raising it, a dashboard tab left open past 5 minutes
+    # gets its websocket closed by the platform (Streamlit reconnects, but
+    # the user sees a visible interruption).
+    timeout = "3600s"
+
+    scaling {
+      min_instance_count = 0
+      max_instance_count = 2
+    }
+
+    containers {
+      image = local.app_image
+
+      resources {
+        limits = {
+          # Cloud Run's default (512MiB) is tight for streamlit + pandas +
+          # pyarrow resident in memory; cheap insurance against an opaque
+          # 500 under real concurrency.
+          memory = "1Gi"
+        }
+      }
+
+      env {
+        name  = "APP_DESTINATION"
+        value = "bigquery"
+      }
+      env {
+        name  = "GCP_PROJECT"
+        value = var.project_id
+      }
+    }
+  }
+
+  depends_on = [google_project_service.run]
+}
+
+resource "google_cloud_run_v2_service_iam_member" "app_public" {
+  project  = var.project_id
+  location = var.region
+  name     = google_cloud_run_v2_service.app.name
+  role     = "roles/run.invoker"
+  member   = "allUsers"
 }

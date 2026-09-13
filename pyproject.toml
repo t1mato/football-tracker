@@ -3,7 +3,14 @@ name = "football-pipeline"
 version = "0.1.0"
 description = "Batch ELT pipeline and analytics app for European football data"
 requires-python = ">=3.12,<3.13"
-dependencies = [
+dependencies = []
+
+[project.optional-dependencies]
+# Split so the pipeline image (Dockerfile) and the app image
+# (Dockerfile.app) can each install only what they run -- neither has ever
+# needed the other's half. `uv sync --all-extras` (CI, local dev) still
+# installs both plus dev, unchanged.
+pipeline = [
     "dagster>=1.11.9",
     "dagster-webserver>=1.11.9",
     # <2: nothing else currently constrains this away from a pre-release
@@ -16,10 +23,26 @@ dependencies = [
     "dbt-bigquery>=1.12,<2",
     "dlt[duckdb,bigquery]>=1.30",
     "requests>=2.32",
-    "streamlit>=1.63.0",
 ]
-
-[project.optional-dependencies]
+app = [
+    "streamlit>=1.63.0",
+    # The four floors below are the exact versions already resolved in
+    # this repo's lockfile before this split -- app/queries.py already
+    # imports all four directly, but only got them transitively through
+    # dlt/dbt until now.
+    "google-cloud-bigquery>=3.45.0",
+    "pandas>=3.0.5",
+    "numpy>=2.5.3",
+    "duckdb>=1.5.5",
+    # app/pages/team_profile.py imports this directly for its form-guide chart.
+    "altair>=6.2.2",
+    # google.cloud.bigquery.QueryJob.to_dataframe() raises ValueError without
+    # this at call time, not import time -- CI's mocked BigQueryConnection
+    # tests never exercise a real to_dataframe() call, so this gap was only
+    # caught live (Task 5's real Cloud Run deploy). Version matches what
+    # dlt[bigquery] already resolves transitively for the pipeline extra.
+    "db-dtypes>=1.7.1",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
