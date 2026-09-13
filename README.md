@@ -1,6 +1,6 @@
-# Football Analytics Data Pipeline
+# Football Statistics Tracker
 
-A batch ELT pipeline and analytics app for European football data. Ingests
+A batch ELT pipeline and statistics tracker app for European football data. Ingests
 fixtures, results, standings, squads and scorers from six competitions,
 models them into a star schema, and serves dashboards over the result.
 
