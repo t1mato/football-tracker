@@ -99,7 +99,7 @@ that shadows the installed packages on `sys.path`.
 ## Getting Started
 
 ```bash
-uv sync --extra dev                  # install
+uv sync --all-extras                 # install
 uv run pytest                        # run tests
 ```
 

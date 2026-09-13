@@ -227,9 +227,28 @@ resource "google_cloud_run_v2_service" "app" {
   name     = "app"
   project  = var.project_id
   location = var.region
+  # Explicit, not left at the provider default (which happens to match) --
+  # "reachable from the public internet" is the single most load-bearing
+  # decision this resource makes and shouldn't be implied.
+  ingress = "INGRESS_TRAFFIC_ALL"
 
   template {
     service_account = google_service_account.app_runner.email
+
+    # Streamlit keeps per-session UI state (selected competition, filters,
+    # etc.) in the specific server process a browser's websocket first
+    # connected to. With max_instance_count > 1, a reconnect (network blip,
+    # backgrounded tab) that lands on the *other* instance has no memory of
+    # that session -- session_affinity keeps a browser pinned to the same
+    # instance across reconnects.
+    session_affinity = true
+
+    # Cloud Run's request timeout defaults to 300s and applies to long-lived
+    # connections, including the websocket Streamlit uses for live UI
+    # updates. Without raising it, a dashboard tab left open past 5 minutes
+    # gets its websocket closed by the platform (Streamlit reconnects, but
+    # the user sees a visible interruption).
+    timeout = "3600s"
 
     scaling {
       min_instance_count = 0
@@ -238,6 +257,15 @@ resource "google_cloud_run_v2_service" "app" {
 
     containers {
       image = local.app_image
+
+      resources {
+        limits = {
+          # Cloud Run's default (512MiB) is tight for streamlit + pandas +
+          # pyarrow resident in memory; cheap insurance against an opaque
+          # 500 under real concurrency.
+          memory = "1Gi"
+        }
+      }
 
       env {
         name  = "APP_DESTINATION"
