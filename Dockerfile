@@ -5,7 +5,7 @@ WORKDIR /app
 RUN pip install --no-cache-dir uv==0.12.0
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen
+RUN uv sync --frozen --extra pipeline
 
 COPY football_pipeline/ ./football_pipeline/
 COPY transform/ ./transform/

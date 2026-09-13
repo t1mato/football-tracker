@@ -772,18 +772,16 @@ wheels = [
 name = "football-pipeline"
 version = "0.1.0"
 source = { editable = "." }
-dependencies = [
-    { name = "dagster" },
-    { name = "dagster-webserver" },
-    { name = "dbt-bigquery" },
-    { name = "dbt-core" },
-    { name = "dbt-duckdb" },
-    { name = "dlt", extra = ["bigquery", "duckdb"] },
-    { name = "requests" },
-    { name = "streamlit" },
-]
 
 [package.optional-dependencies]
+app = [
+    { name = "altair" },
+    { name = "duckdb" },
+    { name = "google-cloud-bigquery" },
+    { name = "numpy" },
+    { name = "pandas" },
+    { name = "streamlit" },
+]
 dev = [
     { name = "bandit" },
     { name = "mypy" },
@@ -792,25 +790,39 @@ dev = [
     { name = "ruff" },
     { name = "types-requests" },
 ]
+pipeline = [
+    { name = "dagster" },
+    { name = "dagster-webserver" },
+    { name = "dbt-bigquery" },
+    { name = "dbt-core" },
+    { name = "dbt-duckdb" },
+    { name = "dlt", extra = ["bigquery", "duckdb"] },
+    { name = "requests" },
+]
 
 [package.metadata]
 requires-dist = [
+    { name = "altair", marker = "extra == 'app'", specifier = ">=6.2.2" },
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7" },
-    { name = "dagster", specifier = ">=1.11.9" },
-    { name = "dagster-webserver", specifier = ">=1.11.9" },
-    { name = "dbt-bigquery", specifier = ">=1.12,<2" },
-    { name = "dbt-core", specifier = ">=1.12,<2" },
-    { name = "dbt-duckdb", specifier = ">=1.11" },
-    { name = "dlt", extras = ["duckdb", "bigquery"], specifier = ">=1.30" },
+    { name = "dagster", marker = "extra == 'pipeline'", specifier = ">=1.11.9" },
+    { name = "dagster-webserver", marker = "extra == 'pipeline'", specifier = ">=1.11.9" },
+    { name = "dbt-bigquery", marker = "extra == 'pipeline'", specifier = ">=1.12,<2" },
+    { name = "dbt-core", marker = "extra == 'pipeline'", specifier = ">=1.12,<2" },
+    { name = "dbt-duckdb", marker = "extra == 'pipeline'", specifier = ">=1.11" },
+    { name = "dlt", extras = ["duckdb", "bigquery"], marker = "extra == 'pipeline'", specifier = ">=1.30" },
+    { name = "duckdb", marker = "extra == 'app'", specifier = ">=1.5.5" },
+    { name = "google-cloud-bigquery", marker = "extra == 'app'", specifier = ">=3.45.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
+    { name = "numpy", marker = "extra == 'app'", specifier = ">=2.5.3" },
+    { name = "pandas", marker = "extra == 'app'", specifier = ">=3.0.5" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "requests", specifier = ">=2.32" },
+    { name = "requests", marker = "extra == 'pipeline'", specifier = ">=2.32" },
     { name = "responses", marker = "extra == 'dev'", specifier = ">=0.25" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.6" },
-    { name = "streamlit", specifier = ">=1.63.0" },
+    { name = "streamlit", marker = "extra == 'app'", specifier = ">=1.63.0" },
     { name = "types-requests", marker = "extra == 'dev'" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["pipeline", "app", "dev"]
 
 [[package]]
 name = "frozenlist"
