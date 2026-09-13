@@ -776,6 +776,7 @@ source = { editable = "." }
 [package.optional-dependencies]
 app = [
     { name = "altair" },
+    { name = "db-dtypes" },
     { name = "duckdb" },
     { name = "google-cloud-bigquery" },
     { name = "numpy" },
@@ -806,6 +807,7 @@ requires-dist = [
     { name = "bandit", marker = "extra == 'dev'", specifier = ">=1.7" },
     { name = "dagster", marker = "extra == 'pipeline'", specifier = ">=1.11.9" },
     { name = "dagster-webserver", marker = "extra == 'pipeline'", specifier = ">=1.11.9" },
+    { name = "db-dtypes", marker = "extra == 'app'", specifier = ">=1.7.1" },
     { name = "dbt-bigquery", marker = "extra == 'pipeline'", specifier = ">=1.12,<2" },
     { name = "dbt-core", marker = "extra == 'pipeline'", specifier = ">=1.12,<2" },
     { name = "dbt-duckdb", marker = "extra == 'pipeline'", specifier = ">=1.11" },

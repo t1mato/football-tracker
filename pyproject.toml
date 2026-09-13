@@ -36,6 +36,12 @@ app = [
     "duckdb>=1.5.5",
     # app/pages/team_profile.py imports this directly for its form-guide chart.
     "altair>=6.2.2",
+    # google.cloud.bigquery.QueryJob.to_dataframe() raises ValueError without
+    # this at call time, not import time -- CI's mocked BigQueryConnection
+    # tests never exercise a real to_dataframe() call, so this gap was only
+    # caught live (Task 5's real Cloud Run deploy). Version matches what
+    # dlt[bigquery] already resolves transitively for the pipeline extra.
+    "db-dtypes>=1.7.1",
 ]
 dev = [
     "pytest>=8.0",
