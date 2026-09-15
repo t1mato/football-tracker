@@ -77,7 +77,8 @@ COMPETITIONS_PAYLOAD = {
     "competitions": [
         {
             "id": 2021, "code": "PL", "name": "Premier League", "type": "LEAGUE",
-            "area": {"id": 2072, "name": "England", "code": "ENG"},
+            "emblem": "https://crests.football-data.org/PL.png",
+            "area": {"id": 2072, "name": "England", "code": "ENG", "flag": "https://crests.football-data.org/770.svg"},
             "currentSeason": {
                 "id": 2502, "startDate": "2026-08-21", "endDate": "2027-05-30",
                 "currentMatchday": 3, "winner": None,
@@ -131,6 +132,44 @@ def test_competitions_does_not_carry_number_of_available_seasons() -> None:
 
     assert "numberOfAvailableSeasons" not in rows[0]
     assert "number_of_available_seasons" not in rows[0]
+
+
+@responses.activate
+def test_competitions_captures_emblem_and_area_flag() -> None:
+    """Both fields are already on the real API response (confirmed live,
+    2026-09-14) -- this only tests that iter_competitions stops dropping
+    them.
+    """
+    responses.get(f"{BASE_URL}/competitions", json=COMPETITIONS_PAYLOAD, status=200)
+
+    rows = list(iter_competitions(ResponseCache(make_client())))
+
+    pl_row = rows[0]
+    assert pl_row["emblem"] == "https://crests.football-data.org/PL.png"
+    assert pl_row["area_flag"] == "https://crests.football-data.org/770.svg"
+
+
+@responses.activate
+def test_competitions_handles_a_missing_emblem_or_flag() -> None:
+    """Not every free-tier competition necessarily has both fields populated
+    -- area.flag in particular is nested under a dict that itself could be
+    absent. Must not raise.
+    """
+    payload = {
+        "count": 1,
+        "competitions": [
+            {
+                "id": 2021, "code": "PL", "name": "Premier League", "type": "LEAGUE",
+                "area": {"id": 2072, "name": "England"},
+            },
+        ],
+    }
+    responses.get(f"{BASE_URL}/competitions", json=payload, status=200)
+
+    rows = list(iter_competitions(ResponseCache(make_client())))
+
+    assert rows[0]["emblem"] is None
+    assert rows[0]["area_flag"] is None
 
 
 def teams_payload(*teams: dict[str, Any]) -> dict[str, Any]:

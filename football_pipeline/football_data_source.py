@@ -72,6 +72,11 @@ def iter_competitions(
     seasons), not what the free tier actually serves -- which stops at
     roughly four seasons back, with older seasons returning 403. Carrying it
     forward would invite a backfill loop built on a number that lies.
+
+    `emblem` (the competition's own logo) and `area.flag` (the country/
+    continent flag) are both already present on this same response --
+    confirmed live against the real API, 2026-09-14 -- just not extracted
+    until now.
     """
     payload = cache.get("competitions")
     for comp in payload["competitions"]:
@@ -85,6 +90,8 @@ def iter_competitions(
             "type": comp.get("type"),
             "area_id": area.get("id"),
             "area_name": area.get("name"),
+            "emblem": comp.get("emblem"),
+            "area_flag": area.get("flag"),
         }
 
 
