@@ -19,6 +19,10 @@ sources:
             data_type: bigint
           - name: area_name
             data_type: varchar
+          - name: emblem
+            data_type: varchar
+          - name: area_flag
+            data_type: varchar
       - name: match_weather
         columns:
           - name: match_id
