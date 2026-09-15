@@ -133,6 +133,12 @@ for i, row in enumerate(competitions.itertuples()):
 st.divider()
 st.subheader("Cross-League Dashboard")
 cross_league = get_cross_league_stats(con)
+# NumberColumn's printf-style format spec does not auto-multiply by 100 the
+# way Python's %-format-spec type (".0%", used by app/pages/cross_league.py
+# for this same underlying value) does -- home_win_rate arrives as a
+# fraction in [0.0, 1.0], so "%.0f%%" needs the value pre-multiplied or it
+# renders 0.42 as "0%" instead of "42%".
+cross_league["home_win_rate"] = cross_league["home_win_rate"] * 100
 st.dataframe(
     cross_league,
     column_config={
