@@ -29,6 +29,9 @@ from app.queries import (
     get_league_fixtures,
     get_match_detail,
     get_matches_for_picker,
+    get_player_bio,
+    get_player_scoring_history,
+    get_players_directory,
     get_recent_matches,
     get_reconstructed_final_standings,
     get_standings,
@@ -1795,3 +1798,152 @@ def test_team_upcoming_excludes_finished_matches(tmp_path: Path) -> None:
     rows = get_team_upcoming(con, 1)
 
     assert len(rows) == 1
+
+
+def build_players_directory_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.dim_players (
+            player_id bigint, team_id bigint, player_name varchar,
+            position varchar, date_of_birth date, nationality varchar,
+            is_derived boolean
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png'),
+            (2, 'Team B', 'https://crests.football-data.org/2.png')
+    """)
+    con.close()
+    return db_path
+
+
+def test_players_directory_includes_bio_and_team_fields(tmp_path: Path) -> None:
+    db_path = build_players_directory_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_players values
+            (1, 1, 'Player A', 'Forward', '1998-05-01', 'England', false)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_players_directory(con)
+
+    row = rows.iloc[0]
+    assert row["player_name"] == "Player A"
+    assert row["position"] == "Forward"
+    assert row["nationality"] == "England"
+    assert row["team_name"] == "Team A"
+    assert row["crest"] == "https://crests.football-data.org/1.png"
+
+
+def test_players_directory_includes_derived_players_with_blank_bio(tmp_path: Path) -> None:
+    """A derived player (is_derived=true) has null position/nationality/
+    date_of_birth by construction -- must still appear in the directory,
+    not be filtered out.
+    """
+    db_path = build_players_directory_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_players values
+            (2, 2, 'Player B', null, null, null, true)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_players_directory(con)
+
+    row = rows.iloc[0]
+    assert row["player_name"] == "Player B"
+    assert pd.isna(row["position"])
+
+
+def test_get_player_bio_returns_none_for_an_unknown_player(tmp_path: Path) -> None:
+    con = duckdb.connect(str(build_players_directory_db(tmp_path)), read_only=True)
+
+    assert get_player_bio(con, 999) is None
+
+
+def test_get_player_bio_returns_bio_fields_for_a_real_player(tmp_path: Path) -> None:
+    db_path = build_players_directory_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_players values
+            (1, 1, 'Player A', 'Forward', '1998-05-01', 'England', false)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    bio = get_player_bio(con, 1)
+
+    assert bio is not None
+    assert bio["player_name"] == "Player A"
+    assert bio["team_name"] == "Team A"
+    assert bio["crest"] == "https://crests.football-data.org/1.png"
+    assert bio["nationality"] == "England"
+
+
+def build_player_scoring_history_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.fct_scorers (
+            competition_code varchar, season_id bigint, player_id bigint,
+            player_name varchar, team_id bigint, team_name varchar,
+            played_matches bigint, goals bigint, assists bigint, penalties bigint
+        );
+        create table main.dim_competitions (competition_code varchar, competition_name varchar);
+        create table main.dim_seasons (
+            season_id bigint, competition_code varchar, start_date date, end_date date
+        );
+        insert into main.dim_competitions values
+            ('PL', 'Premier League'), ('CL', 'UEFA Champions League');
+        insert into main.dim_seasons values
+            ('2502', 'PL', '2026-08-21', '2027-05-30'),
+            ('2403', 'PL', '2025-08-15', '2026-05-24')
+    """)
+    con.close()
+    return db_path
+
+
+def test_player_scoring_history_returns_empty_for_a_non_scoring_player(tmp_path: Path) -> None:
+    con = duckdb.connect(str(build_player_scoring_history_db(tmp_path)), read_only=True)
+
+    rows = get_player_scoring_history(con, 1)
+
+    assert rows.empty
+
+
+def test_player_scoring_history_orders_most_recent_season_first(tmp_path: Path) -> None:
+    db_path = build_player_scoring_history_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_scorers values
+            ('PL', 2403, 1, 'Player A', 10, 'Team X', 20, 5, 2, 0),
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 5, 8, 1, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_player_scoring_history(con, 1)
+
+    assert list(rows["goals"]) == [8, 5]
+    assert list(rows["competition_name"]) == ["Premier League", "Premier League"]
+
+
+def test_player_scoring_history_spans_multiple_competitions(tmp_path: Path) -> None:
+    db_path = build_player_scoring_history_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_seasons values ('2557', 'CL', '2026-09-08', '2027-01-27');
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 5, 8, 1, 0),
+            ('CL', 2557, 1, 'Player A', 10, 'Team X', 3, 2, 0, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_player_scoring_history(con, 1)
+
+    assert set(rows["competition_name"]) == {"Premier League", "UEFA Champions League"}

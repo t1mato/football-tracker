@@ -397,6 +397,69 @@ def get_top_scorers(
 
 
 @st.cache_data(ttl=600)
+def get_players_directory(_con: ConnectionLike) -> pd.DataFrame:
+    """Every player in dim_players, with team display fields -- the
+    Players page directory's data source. Derived players (squad-listing
+    misses, is_derived=true) are included with null bio fields rather
+    than filtered out; they're still real players who existed in the
+    backfilled data.
+    """
+    return _con.execute("""
+        select p.player_id, p.player_name, p.position, p.nationality,
+               t.team_name, t.crest
+        from dim_players p
+        left join dim_teams t on p.team_id = t.team_id
+        order by p.player_name
+    """).df()
+
+
+@st.cache_data(ttl=600)
+def get_player_bio(_con: ConnectionLike, player_id: int) -> pd.Series | None:
+    """One player's bio fields plus their current team's display fields.
+    None if player_id doesn't exist in dim_players at all -- mirrors
+    get_match_detail's None-for-unknown-id convention.
+    """
+    df = _con.execute(
+        """
+        select p.player_name, p.position, p.nationality, p.date_of_birth,
+               t.team_name, t.crest
+        from dim_players p
+        left join dim_teams t on p.team_id = t.team_id
+        where p.player_id = ?
+        """,
+        [player_id],
+    ).df()
+    if df.empty:
+        return None
+    return df.iloc[0]
+
+
+@st.cache_data(ttl=600)
+def get_player_scoring_history(_con: ConnectionLike, player_id: int) -> pd.DataFrame:
+    """Every competition/season this player has a counted fct_scorers row
+    for, most recent season first. May legitimately be empty -- most
+    squad players (defenders, goalkeepers) never appear in fct_scorers at
+    all, since it only covers goal/assist contributors. Ordered by
+    start_date, not season_id, since season_id is an opaque API-assigned
+    integer with no guaranteed chronological ordering across competitions
+    (the same reasoning get_competition_seasons' own ordering already
+    relies on start_date/end_date for a human-readable label).
+    """
+    return _con.execute(
+        """
+        select c.competition_name, s.start_date, s.end_date,
+               f.goals, f.assists, f.played_matches, f.penalties
+        from fct_scorers f
+        left join dim_competitions c on f.competition_code = c.competition_code
+        left join dim_seasons s on f.season_id = s.season_id
+        where f.player_id = ?
+        order by s.start_date desc
+        """,
+        [player_id],
+    ).df()
+
+
+@st.cache_data(ttl=600)
 def get_current_teams(_con: ConnectionLike) -> pd.DataFrame:
     """Every team with at least one match, home or away, in ANY competition's
     current season. UNION (not UNION ALL) dedupes a team appearing in both
