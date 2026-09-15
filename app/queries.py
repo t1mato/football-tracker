@@ -158,22 +158,24 @@ def get_connection(db_path: Path = DEFAULT_DB_PATH) -> ConnectionLike:
     return con
 
 
-def get_competitions(con: ConnectionLike) -> pd.DataFrame:
-    return con.execute("""
+@st.cache_data(ttl=600)
+def get_competitions(_con: ConnectionLike) -> pd.DataFrame:
+    return _con.execute("""
         select competition_code, competition_name
         from dim_competitions
         order by competition_name
     """).df()
 
 
+@st.cache_data(ttl=600)
 def get_current_season_id(
-    con: ConnectionLike, competition_code: str
+    _con: ConnectionLike, competition_code: str
 ) -> int:
     """The most recent season_id for this competition -- never hardcoded,
     so this never drifts from pipeline.py's CURRENT_SEASON (see the design
     doc for why duplicating that constant here would be a real risk).
     """
-    row = con.execute(
+    row = _con.execute(
         "select max(season_id) from dim_seasons where competition_code = ?",
         [competition_code],
     ).fetchone()
@@ -181,10 +183,11 @@ def get_current_season_id(
     return season_id
 
 
+@st.cache_data(ttl=600)
 def get_standings(
-    con: ConnectionLike, competition_code: str, season_id: int
+    _con: ConnectionLike, competition_code: str, season_id: int
 ) -> StandingsResult:
-    latest = con.execute(
+    latest = _con.execute(
         """
         select max(snapshot_date) from fct_standings_snapshot
         where competition_code = ? and season_id = ?
@@ -200,7 +203,7 @@ def get_standings(
             table=None, message="No standings available yet for this competition."
         )
 
-    stage_row = con.execute(
+    stage_row = _con.execute(
         """
         select distinct stage from fct_standings_snapshot
         where competition_code = ? and season_id = ? and snapshot_date = ?
@@ -224,7 +227,7 @@ def get_standings(
             "there's no season-long position to rank.",
         )
 
-    table = con.execute(
+    table = _con.execute(
         """
         select f.position, t.team_name, f.played_games, f.won, f.draw,
                f.lost, f.goals_for, f.goals_against, f.goal_difference, f.points, f.form,
@@ -240,10 +243,11 @@ def get_standings(
     return StandingsResult(table=table, message=None)
 
 
+@st.cache_data(ttl=600)
 def get_recent_matches(
-    con: ConnectionLike, competition_code: str, season_id: int
+    _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
-    return con.execute(
+    return _con.execute(
         f"""
         select {_MATCH_COLUMNS}
         from fct_matches f
@@ -260,10 +264,11 @@ def get_recent_matches(
     ).df()
 
 
+@st.cache_data(ttl=600)
 def get_upcoming_matches(
-    con: ConnectionLike, competition_code: str, season_id: int
+    _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
-    return con.execute(
+    return _con.execute(
         f"""
         select {_MATCH_COLUMNS}
         from fct_matches f
@@ -280,15 +285,16 @@ def get_upcoming_matches(
     ).df()
 
 
+@st.cache_data(ttl=600)
 def get_matches_for_picker(
-    con: ConnectionLike, competition_code: str, season_id: int
+    _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """Every match in this competition/season, for a match-selection dropdown.
 
     Unlike get_recent_matches/get_upcoming_matches, no status filter and no
     limit -- the picker needs to find any match, not just the last/next 10.
     """
-    return con.execute(
+    return _con.execute(
         """
         select f.match_id, f.kickoff_utc,
                ht.team_name as home_team_name, aw.team_name as away_team_name
@@ -302,8 +308,9 @@ def get_matches_for_picker(
     ).df()
 
 
+@st.cache_data(ttl=600)
 def get_top_scorers(
-    con: ConnectionLike, competition_code: str, season_id: int
+    _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """fct_scorers already carries player_name/team_name denormalized on
     the fact row (the source API embeds scorer names directly, unlike
@@ -342,7 +349,7 @@ def get_top_scorers(
     in an arbitrary order (same class of concern get_standings' own
     ORDER BY comment already flags).
     """
-    return con.execute(
+    return _con.execute(
         """
         select
             rank() over (
@@ -360,12 +367,13 @@ def get_top_scorers(
     ).df()
 
 
-def get_current_teams(con: ConnectionLike) -> pd.DataFrame:
+@st.cache_data(ttl=600)
+def get_current_teams(_con: ConnectionLike) -> pd.DataFrame:
     """Every team with at least one match, home or away, in ANY competition's
     current season. UNION (not UNION ALL) dedupes a team appearing in both
     positions across different matches.
     """
-    return con.execute("""
+    return _con.execute("""
         select team_id, team_name from (
             select f.home_team_id as team_id, t.team_name
             from fct_matches f
@@ -387,14 +395,15 @@ def get_current_teams(con: ConnectionLike) -> pd.DataFrame:
     """).df()
 
 
-def get_team_competitions(con: ConnectionLike, team_id: int) -> pd.DataFrame:
+@st.cache_data(ttl=600)
+def get_team_competitions(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
     """Every competition this team has a current-season match in.
 
     DISTINCT is load-bearing here, unlike get_current_teams -- a team can
     have several matches in the same competition/season, and without it
     this would return one row per match, not one per competition.
     """
-    return con.execute(
+    return _con.execute(
         """
         select distinct f.competition_code, c.competition_name, f.season_id
         from fct_matches f
@@ -410,15 +419,16 @@ def get_team_competitions(con: ConnectionLike, team_id: int) -> pd.DataFrame:
     ).df()
 
 
+@st.cache_data(ttl=600)
 def get_team_form(
-    con: ConnectionLike, team_id: int, competition_code: str, season_id: int
+    _con: ConnectionLike, team_id: int, competition_code: str, season_id: int
 ) -> pd.Series | None:
     """mart_team_form has no row at all for a team with zero counted
     results this season/competition -- not a null-valued row. None here
     means exactly that, and the page must show a message, not an empty
     form string.
     """
-    df = con.execute(
+    df = _con.execute(
         """
         select last_5_results, wins, draws, losses, goals_for, goals_against
         from mart_team_form
@@ -431,14 +441,15 @@ def get_team_form(
     return df.iloc[0]
 
 
+@st.cache_data(ttl=600)
 def get_team_position_history(
-    con: ConnectionLike, team_id: int, competition_code: str, season_id: int
+    _con: ConnectionLike, team_id: int, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """May legitimately be empty -- the reconstruction has nothing to chart
     yet (not started, or entirely in a non-league-table stage). The page
     must handle that with a message, not an empty or broken chart.
     """
-    return con.execute(
+    return _con.execute(
         """
         select matchday, position
         from mart_standings_over_time
@@ -449,8 +460,9 @@ def get_team_position_history(
     ).df()
 
 
+@st.cache_data(ttl=600)
 def get_head_to_head(
-    con: ConnectionLike, team_1_id: int, team_2_id: int
+    _con: ConnectionLike, team_1_id: int, team_2_id: int
 ) -> pd.Series | None:
     """mart_head_to_head stores one row per unordered pair, keyed
     team_a_id = least(...), team_b_id = greatest(...) (CLAUDE.md's
@@ -464,7 +476,7 @@ def get_head_to_head(
     None when the pair has no row at all -- two teams that have never
     played each other is a real state, not an error.
     """
-    df = con.execute(
+    df = _con.execute(
         """
         select team_a_id, team_a_wins, team_b_wins, draws,
                matches_played, team_a_goals, team_b_goals
@@ -494,8 +506,9 @@ def get_head_to_head(
     )
 
 
+@st.cache_data(ttl=600)
 def get_head_to_head_matches(
-    con: ConnectionLike, team_1_id: int, team_2_id: int
+    _con: ConnectionLike, team_1_id: int, team_2_id: int
 ) -> pd.DataFrame:
     """Every FINISHED/AWARDED match between the pair, either team home,
     newest first, no cap. Same status filter mart_head_to_head.sql uses,
@@ -507,7 +520,7 @@ def get_head_to_head_matches(
     May legitimately be empty -- reachable only when get_head_to_head
     also returns None, since both read the same underlying match set.
     """
-    return con.execute(
+    return _con.execute(
         f"""
         select f.kickoff_utc, f.kickoff_time_confirmed, c.competition_name,
                ht.team_name as home_team_name, aw.team_name as away_team_name,
@@ -527,7 +540,8 @@ def get_head_to_head_matches(
     ).df()
 
 
-def get_cross_league_stats(con: ConnectionLike) -> pd.DataFrame:
+@st.cache_data(ttl=600)
+def get_cross_league_stats(_con: ConnectionLike) -> pd.DataFrame:
     """One row per tracked competition (dim_competitions), always -- a
     competition with no decided matches in its current season (e.g. UEFA
     Champions League before its group stage starts) still appears, with
@@ -539,7 +553,7 @@ def get_cross_league_stats(con: ConnectionLike) -> pd.DataFrame:
     here one query covers every competition at once, so absence is
     expressed per-row instead of for the whole result.
     """
-    return con.execute(
+    return _con.execute(
         """
         with current_seasons as (
             select competition_code, max(season_id) as season_id
@@ -562,15 +576,16 @@ def get_cross_league_stats(con: ConnectionLike) -> pd.DataFrame:
     ).df()
 
 
+@st.cache_data(ttl=600)
 def get_competition_seasons(
-    con: ConnectionLike, competition_code: str
+    _con: ConnectionLike, competition_code: str
 ) -> pd.DataFrame:
     """Every backfilled season for one competition, most recent first --
     the season picker's source. The page derives a human-readable
     "2024/25" label from start_date/end_date; season_id itself is an
     opaque API-assigned integer with no calendar meaning to a reader.
     """
-    return con.execute(
+    return _con.execute(
         """
         select season_id, start_date, end_date
         from dim_seasons
@@ -581,8 +596,9 @@ def get_competition_seasons(
     ).df()
 
 
+@st.cache_data(ttl=600)
 def get_reconstructed_final_standings(
-    con: ConnectionLike, competition_code: str, season_id: int
+    _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """A past season's final table, reconstructed from match results via
     mart_standings_over_time -- fct_standings_snapshot has zero rows for
@@ -608,7 +624,7 @@ def get_reconstructed_final_standings(
     rows at all (not reachable for any season in today's backfill, but
     not guaranteed to stay that way) gets a message, not a broken table.
     """
-    return con.execute(
+    return _con.execute(
         """
         select
             m.group_name,
@@ -633,7 +649,8 @@ def get_reconstructed_final_standings(
     ).df()
 
 
-def get_streaks(con: ConnectionLike, competition_code: str) -> pd.DataFrame:
+@st.cache_data(ttl=600)
+def get_streaks(_con: ConnectionLike, competition_code: str) -> pd.DataFrame:
     """mart_streaks is grained at (team_id, competition_code) with no
     season_id -- deliberately, not an oversight (see the design doc):
     current_win_streak/current_unbeaten_streak must span a season
@@ -648,7 +665,7 @@ def get_streaks(con: ConnectionLike, competition_code: str) -> pd.DataFrame:
     in mart_streaks (not reachable for any competition in today's
     backfill) gets a message, not a broken table.
     """
-    return con.execute(
+    return _con.execute(
         """
         select
             s.team_id,
@@ -665,8 +682,9 @@ def get_streaks(con: ConnectionLike, competition_code: str) -> pd.DataFrame:
     ).df()
 
 
+@st.cache_data(ttl=600)
 def get_teams_in_season(
-    con: ConnectionLike, competition_code: str, season_id: int
+    _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
     """Every team with at least one match, home or away, in this specific
     competition/season -- the same home+away UNION get_current_teams
@@ -679,7 +697,7 @@ def get_teams_in_season(
     Champions League edition) renders indistinguishably from a
     genuinely active team's current streak.
     """
-    return con.execute(
+    return _con.execute(
         """
         select team_id from (
             select home_team_id as team_id
@@ -695,14 +713,15 @@ def get_teams_in_season(
     ).df()
 
 
+@st.cache_data(ttl=600)
 def get_match_detail(
-    con: ConnectionLike, match_id: int
+    _con: ConnectionLike, match_id: int
 ) -> pd.Series | None:
     """One match's full detail: teams, venue (nullable -- a needs_review
     venue has no coordinates), weather (nullable -- no row until ingested,
     or kickoff not yet confirmed). None if match_id doesn't exist at all.
     """
-    df = con.execute(
+    df = _con.execute(
         """
         select f.match_id, f.competition_code, f.season_id, f.matchday, f.stage,
                f.kickoff_utc, f.kickoff_time_confirmed, f.status,
