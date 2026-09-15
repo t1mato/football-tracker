@@ -6,7 +6,7 @@ Compare vs... head-to-head lookup.
 import pandas as pd
 import streamlit as st
 
-from app.formatting import format_score
+from app.formatting import format_kickoff, format_score
 from app.queries import (
     get_competitions,
     get_connection,
@@ -141,6 +141,26 @@ def show_team_dialog(team_id: int, team_name: str, crest: object,
                 f"{opponent_name} {int(record['team_2_wins'])}W, "
                 f"{int(record['draws'])}D "
                 f"({int(record['team_1_goals'])}-{int(record['team_2_goals'])} goals)"
+            )
+
+            st.subheader("Past meetings")
+            matches = get_head_to_head_matches(con, team_id, opponent_id)
+            display = matches.copy()
+            display["Kickoff"] = display.apply(format_kickoff, axis=1)
+            display["Score"] = display.apply(
+                lambda r: format_score(r["full_time_home"], r["full_time_away"]), axis=1
+            )
+            st.dataframe(
+                display[
+                    ["Kickoff", "competition_name", "home_team_name", "Score", "away_team_name"]
+                ].rename(
+                    columns={
+                        "competition_name": "Competition",
+                        "home_team_name": "Home",
+                        "away_team_name": "Away",
+                    }
+                ),
+                hide_index=True,
             )
 
 
