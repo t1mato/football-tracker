@@ -300,8 +300,8 @@ def get_league_fixtures(
                ht.team_name as home_team_name, ht.crest as home_crest,
                aw.team_name as away_team_name, aw.crest as away_crest
         from fct_matches f
-        join dim_teams ht on f.home_team_id = ht.team_id
-        join dim_teams aw on f.away_team_id = aw.team_id
+        left join dim_teams ht on f.home_team_id = ht.team_id
+        left join dim_teams aw on f.away_team_id = aw.team_id
         where f.competition_code = ? and f.season_id = ?
           and f.status in ('{"', '".join(_UPCOMING_STATUSES)}')
         order by f.kickoff_utc asc
@@ -388,7 +388,7 @@ def get_top_scorers(
             s.played_matches,
             coalesce(s.penalties, 0) as penalties
         from fct_scorers s
-        join dim_teams t on s.team_id = t.team_id
+        left join dim_teams t on s.team_id = t.team_id
         where s.competition_code = ? and s.season_id = ?
         order by rank, s.player_name
         """,

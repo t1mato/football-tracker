@@ -7,6 +7,7 @@ league at once doesn't fit inside any one league's popup.
 import pandas as pd
 import streamlit as st
 
+from app.formatting import format_kickoff, season_label
 from app.queries import (
     get_competition_seasons,
     get_competitions,
@@ -14,6 +15,7 @@ from app.queries import (
     get_cross_league_stats,
     get_current_season_id,
     get_league_fixtures,
+    get_reconstructed_final_standings,
     get_standings,
     get_top_scorers,
 )
@@ -48,7 +50,7 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
         season_id = current_season_id
     else:
         labels = {
-            row.season_id: f"{row.start_date.year}/{str(row.end_date.year)[-2:]}"
+            row.season_id: season_label(row.start_date, row.end_date)
             for row in seasons.itertuples()
         }
         selected_label = st.selectbox(
@@ -57,36 +59,53 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
         season_id = next(sid for sid, label in labels.items() if label == selected_label)
 
     with tab_table:
-        result = get_standings(con, competition_code, season_id)
-        if result.table is None:
-            st.info(result.message)
+        if season_id == current_season_id:
+            result = get_standings(con, competition_code, season_id)
+            if result.table is None:
+                st.info(result.message)
+            else:
+                display = result.table[
+                    ["crest", "team_name", "played_games", "won", "draw", "lost",
+                     "goal_difference", "points"]
+                ].copy()
+                display.insert(0, "position", result.table["position"])
+                display = display.rename(columns={
+                    "played_games": "P", "won": "W", "draw": "D", "lost": "L",
+                    "goal_difference": "GD", "points": "Pts", "team_name": "Team",
+                    "position": "#",
+                })
+                styled = display.style.map(_color_gd, subset=["GD"])
+                st.dataframe(
+                    styled,
+                    column_config={"crest": st.column_config.ImageColumn("", width="small")},
+                    hide_index=True,
+                )
         else:
-            display = result.table[
-                ["crest", "team_name", "played_games", "won", "draw", "lost",
-                 "goal_difference", "points"]
-            ].rename(columns={
-                "played_games": "P", "won": "W", "draw": "D", "lost": "L",
-                "goal_difference": "GD", "points": "Pts", "team_name": "Team",
-            })
-            styled = display.style.map(_color_gd, subset=["GD"])
-            st.dataframe(
-                styled,
-                column_config={"crest": st.column_config.ImageColumn("", width="small")},
-                hide_index=True,
-            )
+            reconstructed = get_reconstructed_final_standings(con, competition_code, season_id)
+            if reconstructed.empty:
+                st.info("No reconstructed final table available for this season.")
+            else:
+                st.dataframe(
+                    reconstructed.rename(columns={
+                        "position": "#", "team_name": "Team", "points": "Pts",
+                        "goal_difference": "GD", "goals_for": "GF",
+                    }),
+                    hide_index=True,
+                )
 
     with tab_fixtures:
         fixtures = get_league_fixtures(con, competition_code, season_id)
         if fixtures.empty:
             st.info("No upcoming fixtures scheduled.")
         else:
+            fixtures = fixtures.copy()
+            fixtures["Kickoff (UTC)"] = fixtures.apply(format_kickoff, axis=1)
+            display_cols = fixtures[
+                ["home_crest", "home_team_name", "Kickoff (UTC)", "away_team_name", "away_crest"]
+            ]
             st.dataframe(
-                fixtures,
+                display_cols,
                 column_config={
-                    "kickoff_utc": st.column_config.DatetimeColumn(
-                        "Kickoff", format="YYYY-MM-DD HH:mm"
-                    ),
-                    "kickoff_time_confirmed": None,
                     "home_crest": st.column_config.ImageColumn("", width="small"),
                     "home_team_name": "Home",
                     "away_crest": st.column_config.ImageColumn("", width="small"),
@@ -103,6 +122,7 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
             st.dataframe(
                 leaders,
                 column_config={
+                    "rank": "Rank",
                     "crest": st.column_config.ImageColumn("", width="small"),
                     "player_name": "Player",
                     "team_name": "Team",
@@ -133,6 +153,10 @@ for i, row in enumerate(competitions.itertuples()):
 st.divider()
 st.subheader("Cross-League Dashboard")
 cross_league = get_cross_league_stats(con)
+# Copy before mutating -- get_cross_league_stats is st.cache_data-cached, so
+# the DataFrame it returns may be the same object handed to other callers/
+# reruns. Same local convention app/pages/cross_league.py already uses.
+cross_league = cross_league.copy()
 # NumberColumn's printf-style format spec does not auto-multiply by 100 the
 # way Python's %-format-spec type (".0%", used by app/pages/cross_league.py
 # for this same underlying value) does -- home_win_rate arrives as a

@@ -1091,10 +1091,6 @@ def test_league_fixtures_excludes_finished_matches(tmp_path: Path) -> None:
     rows = get_league_fixtures(con, "PL", 2502)
 
     assert len(rows) == 1
-    # match_id is not a required output column -- this just confirms the
-    # one surviving row is the SCHEDULED one, not the FINISHED one, if the
-    # column happens to be present.
-    assert rows.iloc[0]["match_id"] if "match_id" in rows.columns else True
 
 
 def test_league_fixtures_orders_soonest_first_and_includes_crests(tmp_path: Path) -> None:
