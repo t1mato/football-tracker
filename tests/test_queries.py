@@ -36,6 +36,8 @@ from app.queries import (
     get_team_competitions,
     get_team_form,
     get_team_position_history,
+    get_team_upcoming,
+    get_teams_for_league,
     get_teams_in_season,
     get_top_scorers,
     get_upcoming_matches,
@@ -1599,3 +1601,115 @@ def test_teams_in_season_excludes_a_different_competition(tmp_path: Path) -> Non
     assert set(rows["team_id"]) == {1, 2}
     cl_rows = get_teams_in_season(con, "CL", 2502)
     assert set(cl_rows["team_id"]) == {1, 2}
+
+
+def build_teams_for_league_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.fct_matches (
+            match_id bigint, competition_code varchar, season_id integer,
+            home_team_id bigint, away_team_id bigint
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png'),
+            (2, 'Team B', 'https://crests.football-data.org/2.png'),
+            (3, 'Team C', 'https://crests.football-data.org/3.png')
+    """)
+    con.close()
+    return db_path
+
+
+def test_teams_for_league_includes_home_and_away_with_crest(tmp_path: Path) -> None:
+    db_path = build_teams_for_league_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, 1, 2),
+            (2, 'PL', 2502, 3, 1)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_teams_for_league(con, "PL", 2502)
+
+    assert set(rows["team_id"]) == {1, 2, 3}
+    row_a = rows[rows["team_id"] == 1].iloc[0]
+    assert row_a["crest"] == "https://crests.football-data.org/1.png"
+
+
+def test_teams_for_league_excludes_other_competitions_and_seasons(tmp_path: Path) -> None:
+    db_path = build_teams_for_league_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, 1, 2),
+            (2, 'PL', 2403, 3, 1),
+            (3, 'CL', 2502, 3, 2)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_teams_for_league(con, "PL", 2502)
+
+    assert set(rows["team_id"]) == {1, 2}
+
+
+def build_team_matches_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.fct_team_matches (
+            match_id bigint, competition_code varchar, season_id integer,
+            kickoff_date_utc date, status varchar, winner varchar,
+            venue_key varchar, team_id bigint, opponent_team_id bigint,
+            is_home boolean, goals_for integer, goals_against integer,
+            result varchar
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
+        create table main.dim_competitions (competition_code varchar, competition_name varchar);
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png'),
+            (2, 'Team B', 'https://crests.football-data.org/2.png'),
+            (3, 'Team C', 'https://crests.football-data.org/3.png');
+        insert into main.dim_competitions values
+            ('PL', 'Premier League'), ('CL', 'UEFA Champions League')
+    """)
+    con.close()
+    return db_path
+
+
+def test_team_upcoming_returns_next_10_scheduled_or_timed(tmp_path: Path) -> None:
+    db_path = build_team_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    values = ",\n".join(
+        f"({i}, 'PL', 2502, '2026-10-{i:02d}', "
+        f"'{'SCHEDULED' if i % 2 == 0 else 'TIMED'}', null, null, "
+        f"1, 2, true, null, null, null)"
+        for i in range(1, 12)
+    )
+    con.execute(f"insert into main.fct_team_matches values {values}")
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_upcoming(con, 1)
+
+    assert len(rows) == 10
+    assert list(rows["kickoff_date_utc"])[0] < list(rows["kickoff_date_utc"])[-1]
+
+
+def test_team_upcoming_excludes_finished_matches(tmp_path: Path) -> None:
+    db_path = build_team_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_team_matches values
+            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, null, 1, 2, true, 2, 1, 'W'),
+            (2, 'PL', 2502, '2026-10-01', 'SCHEDULED', null, null, 1, 2, true, null, null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_upcoming(con, 1)
+
+    assert len(rows) == 1

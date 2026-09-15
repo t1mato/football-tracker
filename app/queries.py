@@ -743,6 +743,60 @@ def get_teams_in_season(
 
 
 @st.cache_data(ttl=600)
+def get_teams_for_league(
+    _con: ConnectionLike, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """Every team with at least one match, home or away, in this
+    competition/season, with display fields -- the Teams page grid's data
+    source. Same home+away union shape as get_teams_in_season, but joined
+    to dim_teams for team_name/crest since this is for direct display, not
+    for filtering another mart's rows.
+    """
+    return _con.execute(
+        """
+        select t.team_id, t.team_name, t.crest
+        from (
+            select home_team_id as team_id
+            from fct_matches
+            where competition_code = ? and season_id = ?
+            union distinct
+            select away_team_id as team_id
+            from fct_matches
+            where competition_code = ? and season_id = ?
+        ) ids
+        left join dim_teams t on ids.team_id = t.team_id
+        order by t.team_name
+        """,
+        [competition_code, season_id, competition_code, season_id],
+    ).df()
+
+
+@st.cache_data(ttl=600)
+def get_team_upcoming(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
+    """The next 10 scheduled matches across every competition, soonest
+    first -- same cross-competition scope as the fct_team_matches-backed
+    form query. goals_for/goals_against/result are still selected
+    (fct_team_matches carries them as null for an unplayed match) so this
+    shares that query's exact column shape for a single shared display
+    helper in the page layer.
+    """
+    return _con.execute(
+        """
+        select f.kickoff_date_utc, t.team_name as opponent_team_name,
+               t.crest as opponent_crest, c.competition_name,
+               f.goals_for, f.goals_against, f.result
+        from fct_team_matches f
+        left join dim_teams t on f.opponent_team_id = t.team_id
+        left join dim_competitions c on f.competition_code = c.competition_code
+        where f.team_id = ? and f.status in ('SCHEDULED', 'TIMED')
+        order by f.kickoff_date_utc asc
+        limit 10
+        """,
+        [team_id],
+    ).df()
+
+
+@st.cache_data(ttl=600)
 def get_match_detail(
     _con: ConnectionLike, match_id: int
 ) -> pd.Series | None:
