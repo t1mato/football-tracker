@@ -1663,10 +1663,13 @@ def build_team_matches_db(tmp_path: Path) -> Path:
     con.execute("""
         create table main.fct_team_matches (
             match_id bigint, competition_code varchar, season_id integer,
-            kickoff_date_utc date, status varchar, winner varchar,
+            kickoff_date_utc date, status varchar,
             venue_key varchar, team_id bigint, opponent_team_id bigint,
             is_home boolean, goals_for integer, goals_against integer,
             result varchar
+        );
+        create table main.fct_matches (
+            match_id bigint, kickoff_utc timestamp, kickoff_time_confirmed boolean
         );
         create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
         create table main.dim_competitions (competition_code varchar, competition_name varchar);
@@ -1687,11 +1690,15 @@ def test_team_form_returns_last_10_finished_across_competitions(tmp_path: Path) 
     # 11 finished rows -- one more than the 10-row window, to prove the cap
     # is real and not accidentally uncapped.
     values = ",\n".join(
-        f"({i}, 'PL', 2502, '2026-09-{i + 1:02d}', 'FINISHED', null, null, "
+        f"({i}, 'PL', 2502, '2026-09-{i + 1:02d}', 'FINISHED', null, "
         f"1, 2, true, {i}, 0, 'W')"
         for i in range(1, 12)
     )
+    match_values = ",\n".join(
+        f"({i}, '2026-09-{i + 1:02d} 15:00:00', true)" for i in range(1, 12)
+    )
     con.execute(f"insert into main.fct_team_matches values {values}")
+    con.execute(f"insert into main.fct_matches values {match_values}")
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
 
@@ -1705,8 +1712,11 @@ def test_team_form_excludes_scheduled_matches(tmp_path: Path) -> None:
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.fct_team_matches values
-            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, null, 1, 2, true, 2, 1, 'W'),
-            (2, 'PL', 2502, '2026-09-15', 'SCHEDULED', null, null, 1, 2, true, null, null, null)
+            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, 1, 2, true, 2, 1, 'W'),
+            (2, 'PL', 2502, '2026-09-15', 'SCHEDULED', null, 1, 2, true, null, null, null);
+        insert into main.fct_matches values
+            (1, '2026-09-01 15:00:00', true),
+            (2, '2026-09-15 15:00:00', true)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
@@ -1721,8 +1731,11 @@ def test_team_form_spans_multiple_competitions_newest_first(tmp_path: Path) -> N
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.fct_team_matches values
-            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, null, 1, 2, true, 2, 1, 'W'),
-            (2, 'CL', 2557, '2026-09-10', 'FINISHED', null, null, 1, 3, false, 0, 2, 'L')
+            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, 1, 2, true, 2, 1, 'W'),
+            (2, 'CL', 2557, '2026-09-10', 'FINISHED', null, 1, 3, false, 0, 2, 'L');
+        insert into main.fct_matches values
+            (1, '2026-09-01 15:00:00', true),
+            (2, '2026-09-10 15:00:00', true)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
@@ -1747,18 +1760,22 @@ def test_team_upcoming_returns_next_10_scheduled_or_timed(tmp_path: Path) -> Non
     con = duckdb.connect(str(db_path))
     values = ",\n".join(
         f"({i}, 'PL', 2502, '2026-10-{i:02d}', "
-        f"'{'SCHEDULED' if i % 2 == 0 else 'TIMED'}', null, null, "
+        f"'{'SCHEDULED' if i % 2 == 0 else 'TIMED'}', null, "
         f"1, 2, true, null, null, null)"
         for i in range(1, 12)
     )
+    match_values = ",\n".join(
+        f"({i}, '2026-10-{i:02d} 15:00:00', true)" for i in range(1, 12)
+    )
     con.execute(f"insert into main.fct_team_matches values {values}")
+    con.execute(f"insert into main.fct_matches values {match_values}")
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
 
     rows = get_team_upcoming(con, 1)
 
     assert len(rows) == 10
-    assert list(rows["kickoff_date_utc"])[0] < list(rows["kickoff_date_utc"])[-1]
+    assert list(rows["kickoff_utc"])[0] < list(rows["kickoff_utc"])[-1]
 
 
 def test_team_upcoming_excludes_finished_matches(tmp_path: Path) -> None:
@@ -1766,8 +1783,11 @@ def test_team_upcoming_excludes_finished_matches(tmp_path: Path) -> None:
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.fct_team_matches values
-            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, null, 1, 2, true, 2, 1, 'W'),
-            (2, 'PL', 2502, '2026-10-01', 'SCHEDULED', null, null, 1, 2, true, null, null, null)
+            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, 1, 2, true, 2, 1, 'W'),
+            (2, 'PL', 2502, '2026-10-01', 'SCHEDULED', null, 1, 2, true, null, null, null);
+        insert into main.fct_matches values
+            (1, '2026-09-01 15:00:00', true),
+            (2, '2026-10-01 15:00:00', true)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)

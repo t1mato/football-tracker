@@ -27,10 +27,14 @@ con = get_connection()
 competitions = get_competitions(con)
 
 
-def _result_badge(result: object) -> str:
-    if pd.isna(result):
+def _color_result(value: object) -> str:
+    if pd.isna(value):
         return ""
-    return {"W": "🟢 W", "D": "🟡 D", "L": "🔴 L"}.get(str(result), "")
+    if value == "W":
+        return "color: #1E9E5A"
+    if value == "L":
+        return "color: #D93B3B"
+    return "color: #B8862F"  # D
 
 
 @st.dialog("Team detail", width="large")
@@ -45,23 +49,27 @@ def show_team_dialog(team_id: int, team_name: str, crest: object,
     )
 
     with tab_form:
+        st.caption("Across all competitions")
         form = get_team_recent_form(con, team_id)
         if form.empty:
             st.info("No finished matches recorded yet.")
         else:
             display = form.copy()
+            display["Kickoff (UTC)"] = display.apply(format_kickoff, axis=1)
             display["Score"] = display.apply(
                 lambda r: format_score(r["goals_for"], r["goals_against"]), axis=1
             )
-            display["Result"] = display["result"].map(_result_badge)
+            display = display[
+                ["Kickoff (UTC)", "opponent_crest", "opponent_team_name",
+                 "competition_name", "Score", "result"]
+            ].rename(columns={
+                "opponent_team_name": "Opponent",
+                "competition_name": "Competition",
+                "result": "Result",
+            })
+            styled = display.style.map(_color_result, subset=["Result"])
             st.dataframe(
-                display[
-                    ["kickoff_date_utc", "opponent_crest", "opponent_team_name",
-                     "competition_name", "Score", "Result"]
-                ].rename(columns={
-                    "kickoff_date_utc": "Date", "opponent_team_name": "Opponent",
-                    "competition_name": "Competition",
-                }),
+                styled,
                 column_config={
                     "opponent_crest": st.column_config.ImageColumn("", width="small"),
                 },
@@ -73,12 +81,14 @@ def show_team_dialog(team_id: int, team_name: str, crest: object,
         if upcoming.empty:
             st.info("No upcoming fixtures scheduled.")
         else:
+            display = upcoming.copy()
+            display["Kickoff (UTC)"] = display.apply(format_kickoff, axis=1)
             st.dataframe(
-                upcoming[
-                    ["kickoff_date_utc", "opponent_crest", "opponent_team_name",
+                display[
+                    ["Kickoff (UTC)", "opponent_crest", "opponent_team_name",
                      "competition_name"]
                 ].rename(columns={
-                    "kickoff_date_utc": "Date", "opponent_team_name": "Opponent",
+                    "opponent_team_name": "Opponent",
                     "competition_name": "Competition",
                 }),
                 column_config={
@@ -109,6 +119,7 @@ def show_team_dialog(team_id: int, team_name: str, crest: object,
                 cols2[3].metric("GF-GA", f"{int(r['goals_for'])}-{int(r['goals_against'])}")
 
     with tab_streaks:
+        st.caption("In this league only")
         streaks = get_streaks(con, league_code)
         row = streaks[streaks["team_id"] == team_id]
         if row.empty:
@@ -174,10 +185,9 @@ teams = get_teams_for_league(con, selected_code, season_id)
 
 cols = st.columns(3)
 for i, row in enumerate(teams.itertuples()):
-    with cols[i % 3]:
-        with st.container(border=True):
-            if pd.notna(row.crest):
-                st.image(row.crest, width=48)
-            st.markdown(f"**{row.team_name}**")
-            if st.button("View", key=f"view_team_{row.team_id}"):
-                show_team_dialog(row.team_id, row.team_name, row.crest, selected_code, season_id)
+    with cols[i % 3], st.container(border=True):
+        if pd.notna(row.crest):
+            st.image(row.crest, width=48)
+        st.markdown(f"**{row.team_name}**")
+        if st.button("View", key=f"view_team_{row.team_id}"):
+            show_team_dialog(row.team_id, row.team_name, row.crest, selected_code, season_id)

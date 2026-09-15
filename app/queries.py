@@ -784,17 +784,26 @@ def get_team_recent_form(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
     the existing get_team_form (mart_team_form-backed, scoped to one
     competition/season, returns pd.Series | None) -- a different function
     used by app/pages/team_profile.py that this task leaves untouched.
+
+    Returns kickoff_utc/kickoff_time_confirmed (joined in from fct_matches
+    on match_id), not fct_team_matches' own bare kickoff_date_utc -- the
+    mart only carries a DATE, with no time and no confirmed/TBD flag, so
+    the page has nothing to feed app.formatting.format_kickoff without this
+    join. Ordering by the real timestamp instead of the bare date is also
+    what gives two same-day matches a deterministic order; a DATE alone
+    has no tiebreak.
     """
     return _con.execute(
         """
-        select f.kickoff_date_utc, t.team_name as opponent_team_name,
+        select m.kickoff_utc, m.kickoff_time_confirmed, t.team_name as opponent_team_name,
                t.crest as opponent_crest, c.competition_name,
                f.goals_for, f.goals_against, f.result
         from fct_team_matches f
+        left join fct_matches m on f.match_id = m.match_id
         left join dim_teams t on f.opponent_team_id = t.team_id
         left join dim_competitions c on f.competition_code = c.competition_code
         where f.team_id = ? and f.status in ('FINISHED', 'AWARDED')
-        order by f.kickoff_date_utc desc
+        order by m.kickoff_utc desc
         limit 10
         """,
         [team_id],
@@ -809,17 +818,23 @@ def get_team_upcoming(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
     carries them as null for an unplayed match) so this shares that
     query's exact column shape for a single shared display helper in the
     page layer.
+
+    Returns kickoff_utc/kickoff_time_confirmed (joined in from fct_matches
+    on match_id), not fct_team_matches' own bare kickoff_date_utc -- same
+    reasoning as get_team_recent_form's identical join, and again gives a
+    deterministic tiebreak for two matches scheduled on the same date.
     """
     return _con.execute(
         """
-        select f.kickoff_date_utc, t.team_name as opponent_team_name,
+        select m.kickoff_utc, m.kickoff_time_confirmed, t.team_name as opponent_team_name,
                t.crest as opponent_crest, c.competition_name,
                f.goals_for, f.goals_against, f.result
         from fct_team_matches f
+        left join fct_matches m on f.match_id = m.match_id
         left join dim_teams t on f.opponent_team_id = t.team_id
         left join dim_competitions c on f.competition_code = c.competition_code
         where f.team_id = ? and f.status in ('SCHEDULED', 'TIMED')
-        order by f.kickoff_date_utc asc
+        order by m.kickoff_utc asc
         limit 10
         """,
         [team_id],
