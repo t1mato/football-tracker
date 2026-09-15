@@ -8,6 +8,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --extra app
 
 COPY app/ ./app/
+COPY .streamlit/ ./.streamlit/
 
 # Closes a real silent-failure path: app/queries.py's get_connection()
 # falls back to a local DuckDB file when APP_DESTINATION isn't

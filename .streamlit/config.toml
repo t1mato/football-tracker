@@ -1,0 +1,8 @@
+[theme]
+primaryColor = "#0054BB"
+violetColor = "#582EC2"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#EEF2FC"
+textColor = "#131A2E"
+font = "Hanken Grotesk:https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700;800&display=swap"
+headingFont = "Staatliches:https://fonts.googleapis.com/css2?family=Staatliches&display=swap"
