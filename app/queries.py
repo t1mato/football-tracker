@@ -444,11 +444,22 @@ def get_player_scoring_history(_con: ConnectionLike, player_id: int) -> pd.DataF
     integer with no guaranteed chronological ordering across competitions
     (the same reasoning get_competition_seasons' own ordering already
     relies on start_date/end_date for a human-readable label).
+
+    assists/penalties coalesce NULL to 0 -- same fix, same reasoning, as
+    get_top_scorers: confirmed via a live football-data.org API call that
+    the source JSON sends an explicit null for zero assists/penalties, not
+    an omitted field and not an explicit 0. Left uncoalesced here until a
+    real player's row (Ferran Torres, 8/8 fct_scorers rows with null
+    penalties, several with null assists) rendered literal "None" text in
+    the Players page's Scoring History table -- st.dataframe shows
+    NaN/None as visible text, not a blank cell, so this has to be fixed at
+    the query, not the display.
     """
     return _con.execute(
         """
         select c.competition_name, s.start_date, s.end_date,
-               f.goals, f.assists, f.played_matches, f.penalties
+               f.goals, coalesce(f.assists, 0) as assists, f.played_matches,
+               coalesce(f.penalties, 0) as penalties
         from fct_scorers f
         left join dim_competitions c on f.competition_code = c.competition_code
         left join dim_seasons s on f.season_id = s.season_id

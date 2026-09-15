@@ -1947,3 +1947,33 @@ def test_player_scoring_history_spans_multiple_competitions(tmp_path: Path) -> N
     rows = get_player_scoring_history(con, 1)
 
     assert set(rows["competition_name"]) == {"Premier League", "UEFA Champions League"}
+
+
+def test_player_scoring_history_treats_null_assists_and_penalties_as_zero(
+    tmp_path: Path,
+) -> None:
+    """assists/penalties are frequently NULL in the real data (e.g. Ferran
+    Torres carries null penalties on every one of his 8 real fct_scorers
+    rows, and null assists on several) -- confirmed via a live
+    football-data.org API call that NULL is the API's own encoding of zero,
+    not "unknown". Same fix, same reasoning, as
+    test_top_scorers_treats_null_assists_as_zero: without
+    coalesce(..., 0), st.dataframe renders these as literal "None" text
+    in the Players page's Scoring History table instead of 0.
+    """
+    db_path = build_player_scoring_history_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 5, 8, null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_player_scoring_history(con, 1)
+
+    row = rows.iloc[0]
+    assert row["assists"] == 0
+    assert pd.notna(row["assists"])
+    assert row["penalties"] == 0
+    assert pd.notna(row["penalties"])

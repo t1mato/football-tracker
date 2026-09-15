@@ -72,23 +72,31 @@ with tab_directory:
     teams = ["All"] + sorted(directory["team_name"].dropna().unique().tolist())
     team_filter = st.selectbox("Club", teams)
 
-    filtered = directory
-    if search:
-        filtered = filtered[filtered["player_name"].str.contains(search, case=False, na=False)]
-    if team_filter != "All":
-        filtered = filtered[filtered["team_name"] == team_filter]
+    if not search and team_filter == "All":
+        st.info("Type a name or pick a club to browse players.")
+    else:
+        filtered = directory
+        if search:
+            filtered = filtered[filtered["player_name"].str.contains(search, case=False, na=False)]
+        if team_filter != "All":
+            filtered = filtered[filtered["team_name"] == team_filter]
 
-    st.caption(f"{len(filtered)} player(s)")
+        st.caption(f"{len(filtered)} player(s)")
 
-    cols = st.columns(4)
-    for i, row in enumerate(filtered.itertuples()):
-        with cols[i % 4], st.container(border=True):
-            if pd.notna(row.crest):
-                st.image(row.crest, width=40)
-            st.markdown(f"**{row.player_name}**")
-            st.caption(row.team_name if pd.notna(row.team_name) else "Unknown club")
-            if st.button("View", key=f"view_player_{row.player_id}"):
-                show_player_dialog(row.player_id)
+        if filtered.empty:
+            st.info("No players match this search/filter.")
+        else:
+            state = st.dataframe(
+                filtered.reset_index(drop=True),
+                column_config={"crest": st.column_config.ImageColumn("", width="small")},
+                on_select="rerun",
+                selection_mode="single-row",
+                hide_index=True,
+                key="players_directory_table",
+            )
+            if state.selection.rows:
+                selected_row = filtered.reset_index(drop=True).iloc[state.selection.rows[0]]
+                show_player_dialog(int(selected_row["player_id"]))
 
 with tab_leaderboard:
     competitions = get_competitions(con)
