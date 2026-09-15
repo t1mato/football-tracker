@@ -36,6 +36,7 @@ from app.queries import (
     get_team_competitions,
     get_team_form,
     get_team_position_history,
+    get_team_recent_form,
     get_team_upcoming,
     get_teams_for_league,
     get_teams_in_season,
@@ -1678,6 +1679,67 @@ def build_team_matches_db(tmp_path: Path) -> Path:
     """)
     con.close()
     return db_path
+
+
+def test_team_form_returns_last_10_finished_across_competitions(tmp_path: Path) -> None:
+    db_path = build_team_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    # 11 finished rows -- one more than the 10-row window, to prove the cap
+    # is real and not accidentally uncapped.
+    values = ",\n".join(
+        f"({i}, 'PL', 2502, '2026-09-{i + 1:02d}', 'FINISHED', null, null, "
+        f"1, 2, true, {i}, 0, 'W')"
+        for i in range(1, 12)
+    )
+    con.execute(f"insert into main.fct_team_matches values {values}")
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_recent_form(con, 1)
+
+    assert len(rows) == 10
+
+
+def test_team_form_excludes_scheduled_matches(tmp_path: Path) -> None:
+    db_path = build_team_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_team_matches values
+            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, null, 1, 2, true, 2, 1, 'W'),
+            (2, 'PL', 2502, '2026-09-15', 'SCHEDULED', null, null, 1, 2, true, null, null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_recent_form(con, 1)
+
+    assert len(rows) == 1
+
+
+def test_team_form_spans_multiple_competitions_newest_first(tmp_path: Path) -> None:
+    db_path = build_team_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_team_matches values
+            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, null, 1, 2, true, 2, 1, 'W'),
+            (2, 'CL', 2557, '2026-09-10', 'FINISHED', null, null, 1, 3, false, 0, 2, 'L')
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_recent_form(con, 1)
+
+    assert list(rows["competition_name"]) == ["UEFA Champions League", "Premier League"]
+    # Opponent for the PL row is Team B (opponent_team_id=2 in the fixture
+    # above) -- NOT Team A. Team A is team_id=1, the team being queried, so
+    # it can never legitimately appear as its own opponent; asserting
+    # "Team A" here was a transcription bug in this test as originally
+    # specified (traced against the fixture, not guessed).
+    assert list(rows["opponent_team_name"]) == ["Team C", "Team B"]
+    assert list(rows["opponent_crest"]) == [
+        "https://crests.football-data.org/3.png",
+        "https://crests.football-data.org/2.png",
+    ]
 
 
 def test_team_upcoming_returns_next_10_scheduled_or_timed(tmp_path: Path) -> None:

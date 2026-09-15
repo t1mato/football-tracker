@@ -772,13 +772,43 @@ def get_teams_for_league(
 
 
 @st.cache_data(ttl=600)
+def get_team_recent_form(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
+    """The 10 most recent finished matches across every competition this
+    team plays in -- a club's last 10 routinely spans its domestic league
+    and a continental competition, so this deliberately does not scope to
+    one competition_code the way get_recent_matches does. Backed by
+    fct_team_matches, which already carries this team's own goals_for/
+    goals_against/result regardless of whether it played home or away.
+
+    Named get_team_recent_form, not get_team_form, to avoid colliding with
+    the existing get_team_form (mart_team_form-backed, scoped to one
+    competition/season, returns pd.Series | None) -- a different function
+    used by app/pages/team_profile.py that this task leaves untouched.
+    """
+    return _con.execute(
+        """
+        select f.kickoff_date_utc, t.team_name as opponent_team_name,
+               t.crest as opponent_crest, c.competition_name,
+               f.goals_for, f.goals_against, f.result
+        from fct_team_matches f
+        left join dim_teams t on f.opponent_team_id = t.team_id
+        left join dim_competitions c on f.competition_code = c.competition_code
+        where f.team_id = ? and f.status in ('FINISHED', 'AWARDED')
+        order by f.kickoff_date_utc desc
+        limit 10
+        """,
+        [team_id],
+    ).df()
+
+
+@st.cache_data(ttl=600)
 def get_team_upcoming(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
     """The next 10 scheduled matches across every competition, soonest
-    first -- same cross-competition scope as the fct_team_matches-backed
-    form query. goals_for/goals_against/result are still selected
-    (fct_team_matches carries them as null for an unplayed match) so this
-    shares that query's exact column shape for a single shared display
-    helper in the page layer.
+    first -- same cross-competition scope as get_team_recent_form.
+    goals_for/goals_against/result are still selected (fct_team_matches
+    carries them as null for an unplayed match) so this shares that
+    query's exact column shape for a single shared display helper in the
+    page layer.
     """
     return _con.execute(
         """
