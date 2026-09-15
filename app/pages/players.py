@@ -24,7 +24,37 @@ con = get_connection()
 tab_directory, tab_leaderboard = st.tabs(["Directory", "Golden Boot"])
 
 
-@st.dialog("Player detail", width="large")
+def _clear_directory_selection() -> None:
+    """Runs when the player dialog is dismissed (on_dismiss below).
+
+    st.dataframe's on_select="rerun" selection state persists across
+    reruns -- it is not cleared just because a dialog opened from it was
+    dismissed. Confirmed live (Playwright, this exact sequence): select
+    Ferran Torres -> dismiss -> search "Unai Simón" -> no reopen (looks
+    fine) -> select Unai Simón -> dismiss -> search "Jr." -> Cristian
+    Casseres Jr.'s dialog pops open unprompted.
+
+    Setting st.session_state["players_directory_table"] alone does NOT
+    fix this. Verified with debug instrumentation across that exact
+    sequence: after the reset, st.session_state correctly showed
+    {"rows": [], ...}, but st.dataframe's OWN RETURNED state.selection.rows
+    on the very next rerun was [0] anyway -- the frontend grid component
+    keeps its own local "which row is checked" state tied to the widget's
+    key, independent of whatever the Python side writes to session_state,
+    and resyncs that stale local value back to the server on the next
+    unrelated widget interaction, overwriting the reset. Changing the
+    widget's key so Streamlit treats it as a brand-new widget instance
+    (discarding the old frontend component and its stale local state
+    entirely) is what actually fixes it -- verified live with the same
+    select->dismiss->search sequence repeated across three different
+    players in a row: no reopen at any step.
+    """
+    st.session_state["_directory_table_version"] = (
+        st.session_state.get("_directory_table_version", 0) + 1
+    )
+
+
+@st.dialog("Player detail", width="large", on_dismiss=_clear_directory_selection)
 def show_player_dialog(player_id: int) -> None:
     bio = get_player_bio(con, player_id)
     if bio is None:
@@ -77,7 +107,9 @@ with tab_directory:
     else:
         filtered = directory
         if search:
-            filtered = filtered[filtered["player_name"].str.contains(search, case=False, na=False)]
+            filtered = filtered[
+                filtered["player_name"].str.contains(search, case=False, na=False, regex=False)
+            ]
         if team_filter != "All":
             filtered = filtered[filtered["team_name"] == team_filter]
 
@@ -86,16 +118,22 @@ with tab_directory:
         if filtered.empty:
             st.info("No players match this search/filter.")
         else:
+            filtered = filtered.reset_index(drop=True)
+            table_version = st.session_state.get("_directory_table_version", 0)
+            table_key = f"players_directory_table_{table_version}"
             state = st.dataframe(
-                filtered.reset_index(drop=True),
-                column_config={"crest": st.column_config.ImageColumn("", width="small")},
+                filtered,
+                column_config={
+                    "player_id": None,
+                    "crest": st.column_config.ImageColumn("", width="small"),
+                },
                 on_select="rerun",
                 selection_mode="single-row",
                 hide_index=True,
-                key="players_directory_table",
+                key=table_key,
             )
             if state.selection.rows:
-                selected_row = filtered.reset_index(drop=True).iloc[state.selection.rows[0]]
+                selected_row = filtered.iloc[state.selection.rows[0]]
                 show_player_dialog(int(selected_row["player_id"]))
 
 with tab_leaderboard:
