@@ -9,6 +9,8 @@ plausible. Living in their own module makes them unit-testable without a
 Streamlit runtime.
 """
 
+from datetime import UTC, date, datetime
+
 import pandas as pd
 
 
@@ -70,6 +72,20 @@ def season_label(start_date: object, end_date: object) -> str:
     API-assigned integer with no calendar meaning to a reader.
     """
     return f"{start_date.year}/{str(end_date.year)[-2:]}"
+
+
+def player_age(date_of_birth: object, today: date | None = None) -> int:
+    """Age in whole years as of `today` (defaults to the real current UTC
+    date) -- not (today - dob).days // 365, which over-reports by a year
+    for any birthday that hasn't occurred yet this year (confirmed
+    live: 30 real players in the warehouse showed an age one year too
+    high under that formula, e.g. Christian Pulisic 28 vs actual 27).
+    """
+    if today is None:
+        today = datetime.now(UTC).date()
+    dob = date_of_birth if isinstance(date_of_birth, date) else pd.Timestamp(date_of_birth).date()
+    had_birthday_this_year = (today.month, today.day) >= (dob.month, dob.day)
+    return today.year - dob.year - (0 if had_birthday_this_year else 1)
 
 
 def venue_is_resolved(venue_needs_review: object) -> bool:

@@ -6,7 +6,7 @@ tab (concept B, today's Top Scorers page relocated).
 import pandas as pd
 import streamlit as st
 
-from app.formatting import season_label
+from app.formatting import player_age, season_label
 from app.queries import (
     get_competitions,
     get_connection,
@@ -69,7 +69,7 @@ def show_player_dialog(player_id: int) -> None:
     cols[0].metric("Position", bio["position"] if pd.notna(bio["position"]) else "Unknown")
     cols[1].metric("Nationality", bio["nationality"] if pd.notna(bio["nationality"]) else "Unknown")
     if pd.notna(bio["date_of_birth"]):
-        age = (pd.Timestamp.now() - pd.Timestamp(bio["date_of_birth"])).days // 365
+        age = player_age(bio["date_of_birth"])
         cols[2].metric("Age", age)
     else:
         cols[2].metric("Age", "Unknown")
@@ -102,39 +102,45 @@ with tab_directory:
     teams = ["All"] + sorted(directory["team_name"].dropna().unique().tolist())
     team_filter = st.selectbox("Club", teams)
 
-    if not search and team_filter == "All":
-        st.info("Type a name or pick a club to browse players.")
+    filtered = directory
+    if search:
+        filtered = filtered[
+            filtered["player_name"].str.contains(search, case=False, na=False, regex=False)
+        ]
+    if team_filter != "All":
+        filtered = filtered[filtered["team_name"] == team_filter]
+
+    st.caption(f"{len(filtered)} player(s)")
+
+    if filtered.empty:
+        st.info("No players match this search/filter.")
     else:
-        filtered = directory
-        if search:
-            filtered = filtered[
-                filtered["player_name"].str.contains(search, case=False, na=False, regex=False)
-            ]
-        if team_filter != "All":
-            filtered = filtered[filtered["team_name"] == team_filter]
+        filtered = filtered.reset_index(drop=True)
+        display = filtered[["crest", "player_name", "position", "nationality", "team_name"]].copy()
+        display["position"] = display["position"].fillna("—")
+        display["nationality"] = display["nationality"].fillna("—")
+        display["crest"] = display["crest"].fillna("")
 
-        st.caption(f"{len(filtered)} player(s)")
-
-        if filtered.empty:
-            st.info("No players match this search/filter.")
-        else:
-            filtered = filtered.reset_index(drop=True)
-            table_version = st.session_state.get("_directory_table_version", 0)
-            table_key = f"players_directory_table_{table_version}"
-            state = st.dataframe(
-                filtered,
-                column_config={
-                    "player_id": None,
-                    "crest": st.column_config.ImageColumn("", width="small"),
-                },
-                on_select="rerun",
-                selection_mode="single-row",
-                hide_index=True,
-                key=table_key,
-            )
-            if state.selection.rows:
-                selected_row = filtered.iloc[state.selection.rows[0]]
-                show_player_dialog(int(selected_row["player_id"]))
+        table_version = st.session_state.get("_directory_table_version", 0)
+        table_key = f"players_directory_table_{table_version}"
+        st.caption("Select a player to see their profile.")
+        state = st.dataframe(
+            display,
+            column_config={
+                "crest": st.column_config.ImageColumn("", width="small"),
+                "player_name": "Player",
+                "position": "Position",
+                "nationality": "Nationality",
+                "team_name": "Club",
+            },
+            on_select="rerun",
+            selection_mode="single-row",
+            hide_index=True,
+            key=table_key,
+        )
+        if state.selection.rows:
+            selected_row = filtered.iloc[state.selection.rows[0]]
+            show_player_dialog(int(selected_row["player_id"]))
 
 with tab_leaderboard:
     competitions = get_competitions(con)
@@ -152,6 +158,15 @@ with tab_leaderboard:
     else:
         st.dataframe(
             scorers,
-            column_config={"crest": st.column_config.ImageColumn("", width="small")},
+            column_config={
+                "rank": "Rank",
+                "crest": st.column_config.ImageColumn("", width="small"),
+                "player_name": "Player",
+                "team_name": "Team",
+                "goals": "G",
+                "assists": "A",
+                "played_matches": "MP",
+                "penalties": "Pen",
+            },
             hide_index=True,
         )

@@ -6,6 +6,8 @@ reliably catches -- the wrong output still looks plausible. Hence real unit
 tests here rather than relying on manual app verification.
 """
 
+from datetime import date
+
 import pandas as pd
 
 from app.formatting import (
@@ -14,6 +16,7 @@ from app.formatting import (
     format_stat,
     format_weather,
     match_display,
+    player_age,
     season_label,
     venue_is_resolved,
 )
@@ -201,6 +204,30 @@ def test_season_label_pads_a_single_digit_end_year() -> None:
     end = pd.Timestamp("2009-05-01")
 
     assert season_label(start, end) == "2008/09"
+
+
+def test_player_age_when_birthday_has_already_occurred_this_year() -> None:
+    """Birthday earlier in the calendar year than `today` -- simple
+    subtraction and the corrected formula agree here, so this pins the
+    non-buggy case stays correct.
+    """
+    today = date(2026, 9, 15)
+    dob = date(2000, 9, 18 - 3)  # 2000-09-15, birthday exactly today
+
+    assert player_age(dob, today=today) == 26
+
+
+def test_player_age_when_birthday_has_not_yet_occurred_this_year() -> None:
+    """The exact case that was wrong before: a birthday later in the
+    calendar year than `today`. The naive (today - dob).days // 365
+    formula over-reports by a year here -- e.g. Christian Pulisic, born
+    2000-09-18, evaluated against a `today` before that date this year
+    should show 25, not 26.
+    """
+    today = date(2026, 9, 15)
+    dob = date(2000, 9, 18)
+
+    assert player_age(dob, today=today) == 25
 
 
 def test_format_weather_handles_no_data_type_without_crashing() -> None:
