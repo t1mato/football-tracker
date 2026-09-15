@@ -7,20 +7,21 @@ real.
 streamlit run app/streamlit_app.py
 """
 
+from pathlib import Path
+
 import streamlit as st
 
 st.set_page_config(page_title="Football Tracker", layout="wide")
-# "app/assets/logo.png", not "assets/logo.png" -- unlike st.Page (which
-# resolves relative to this script's own directory), st.logo/st.image
+# Path(__file__)-relative, not a CWD-relative string -- st.logo/st.image
 # resolve a local path via plain os.path.isfile()/open() against the
-# process's CWD. This app is always launched as `streamlit run
-# app/streamlit_app.py` from the repo root (locally) or from Dockerfile.app's
-# WORKDIR /app (in Cloud Run, where COPY app/ ./app/ puts the real file at
-# /app/app/assets/logo.png) -- CWD is the repo root/WORKDIR in both cases,
-# so the CWD-relative path is app/assets/logo.png either way. Verified by
-# reading streamlit's image_to_url() in image_utils.py directly, not
-# assumed.
-st.logo("app/assets/logo.png", size="medium")
+# process's CWD (unlike st.Page, which resolves relative to this script's
+# own directory), so a CWD-relative string breaks -- hard -- if this app is
+# ever launched from a different working directory (confirmed live: a wrong
+# CWD makes st.logo raise and abort the entire script, no nav, no page,
+# nothing). Anchoring to this file's own location removes the hazard
+# outright rather than just getting the currently-known launch paths right.
+LOGO_PATH = Path(__file__).parent / "assets" / "logo.png"
+st.logo(str(LOGO_PATH), size="medium")
 
 pages = [
     st.Page("pages/leagues.py", title="Leagues"),

@@ -1,4 +1,7 @@
 [theme]
+# Light theme only for now -- no [theme.dark] override yet; a user with a
+# dark OS preference gets these same light values, not stock Streamlit dark.
+# Revisit if that's ever raised as a real complaint.
 primaryColor = "#0054BB"
 violetColor = "#582EC2"
 backgroundColor = "#FFFFFF"
