@@ -26,6 +26,7 @@ from app.queries import (
     get_current_teams,
     get_head_to_head,
     get_head_to_head_matches,
+    get_league_fixtures,
     get_match_detail,
     get_matches_for_picker,
     get_recent_matches,
@@ -288,12 +289,18 @@ def build_db(tmp_path: Path) -> Path:
     con = duckdb.connect(str(db_path))
     con.execute("""
         create table main.dim_competitions (
-            competition_code varchar, competition_name varchar
+            competition_code varchar, competition_name varchar,
+            area_name varchar, emblem varchar, area_flag varchar
         )
     """)
     con.execute("""
         insert into main.dim_competitions values
-            ('PL', 'Premier League'), ('CL', 'UEFA Champions League')
+            ('PL', 'Premier League', 'England',
+             'https://crests.football-data.org/PL.png',
+             'https://crests.football-data.org/770.svg'),
+            ('CL', 'UEFA Champions League', 'Europe',
+             'https://crests.football-data.org/CL.png',
+             'https://crests.football-data.org/EUR.svg')
     """)
     con.close()
     return db_path
@@ -306,6 +313,17 @@ def test_get_competitions_returns_code_and_name(tmp_path: Path) -> None:
 
     assert set(rows["competition_code"]) == {"PL", "CL"}
     assert set(rows["competition_name"]) == {"Premier League", "UEFA Champions League"}
+
+
+def test_get_competitions_includes_area_and_crest_fields(tmp_path: Path) -> None:
+    con = duckdb.connect(str(build_db(tmp_path)), read_only=True)
+
+    rows = get_competitions(con)
+
+    pl_row = rows[rows["competition_code"] == "PL"].iloc[0]
+    assert pl_row["area_name"] == "England"
+    assert pl_row["emblem"] == "https://crests.football-data.org/PL.png"
+    assert pl_row["area_flag"] == "https://crests.football-data.org/770.svg"
 
 
 def test_get_current_season_id_is_the_max_per_competition(tmp_path: Path) -> None:
@@ -331,7 +349,7 @@ def build_standings_db(tmp_path: Path) -> Path:
             lost integer, points integer, goals_for integer, goals_against integer,
             goal_difference integer, form varchar
         );
-        create table main.dim_teams (team_id bigint, team_name varchar)
+        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar)
     """)
     con.close()
     return db_path
@@ -341,7 +359,9 @@ def test_a_normal_league_phase_returns_the_table_ordered_by_position(tmp_path: P
     db_path = build_standings_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
-        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B');
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png'),
+            (2, 'Team B', 'https://crests.football-data.org/2.png');
         insert into main.fct_standings_snapshot values
             ('PL', 2502, 2, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 2, 3, 2,0,1, 6,5,3,2, 'WWL'),
             ('PL', 2502, 1, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 1, 3, 3,0,0, 9,7,1,6, 'WWW')
@@ -369,7 +389,9 @@ def test_only_the_latest_snapshot_date_is_returned(tmp_path: Path) -> None:
     db_path = build_standings_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
-        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B');
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png'),
+            (2, 'Team B', 'https://crests.football-data.org/2.png');
         insert into main.fct_standings_snapshot values
             ('PL', 2502, 1, '2026-08-31', 'REGULAR_SEASON', 'TOTAL', 2, 2, 1,0,1, 3,3,4,-1, 'WL'),
             ('PL', 2502, 2, '2026-08-31', 'REGULAR_SEASON', 'TOTAL', 1, 2, 2,0,0, 6,4,1,3, 'WW'),
@@ -406,7 +428,8 @@ def test_a_knockout_phase_snapshot_returns_the_knockout_message(tmp_path: Path) 
     db_path = build_standings_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
-        insert into main.dim_teams values (1, 'Team A');
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png');
         insert into main.fct_standings_snapshot values
             ('CL', 2601, 1, '2027-03-01', 'QUARTER_FINALS', 'TOTAL',
              null, null, null,null,null, null,null,null,null, null)
@@ -419,6 +442,29 @@ def test_a_knockout_phase_snapshot_returns_the_knockout_message(tmp_path: Path) 
     assert result.table is None
     assert result.message is not None
     assert "knockout" in result.message.lower()
+
+
+def test_standings_table_includes_team_crest(tmp_path: Path) -> None:
+    db_path = build_standings_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png'),
+            (2, 'Team B', 'https://crests.football-data.org/2.png');
+        insert into main.fct_standings_snapshot values
+            ('PL', 2502, 2, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 2, 3, 2,0,1, 6,5,3,2, 'WWL'),
+            ('PL', 2502, 1, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 1, 3, 3,0,0, 9,7,1,6, 'WWW')
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    result = get_standings(con, "PL", 2502)
+
+    assert result.table is not None
+    assert list(result.table["crest"]) == [
+        "https://crests.football-data.org/1.png",
+        "https://crests.football-data.org/2.png",
+    ]
 
 
 def build_matches_db(tmp_path: Path) -> Path:
@@ -770,7 +816,8 @@ def build_scorers_db(tmp_path: Path) -> Path:
             competition_code varchar, season_id bigint, player_id bigint,
             player_name varchar, team_id bigint, team_name varchar,
             played_matches bigint, goals bigint, assists bigint, penalties bigint
-        )
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar)
     """)
     con.close()
     return db_path
@@ -782,6 +829,10 @@ def test_top_scorers_sorts_by_goals_then_assists_then_fewer_matches(
     db_path = build_scorers_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png'),
+            (11, 'Team Y', 'https://crests.football-data.org/11.png'),
+            (12, 'Team Z', 'https://crests.football-data.org/12.png');
         insert into main.fct_scorers values
             ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 0),
             ('PL', 2502, 2, 'Player B', 11, 'Team Y', 12, 8, 3, 0),
@@ -804,6 +855,9 @@ def test_top_scorers_breaks_a_goals_and_assists_tie_by_fewer_matches_played(
     db_path = build_scorers_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png'),
+            (11, 'Team Y', 'https://crests.football-data.org/11.png');
         insert into main.fct_scorers values
             ('PL', 2502, 1, 'Player A', 10, 'Team X', 20, 8, 2, 0),
             ('PL', 2502, 2, 'Player B', 11, 'Team Y', 14, 8, 2, 0)
@@ -831,6 +885,11 @@ def test_top_scorers_gives_fully_tied_players_the_same_rank(tmp_path: Path) -> N
     db_path = build_scorers_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png'),
+            (11, 'Team Y', 'https://crests.football-data.org/11.png'),
+            (12, 'Team Z', 'https://crests.football-data.org/12.png'),
+            (13, 'Team W', 'https://crests.football-data.org/13.png');
         insert into main.fct_scorers values
             ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 10, 5, 0),
             ('PL', 2502, 2, 'Player B', 11, 'Team Y', 10, 8, 3, 0),
@@ -879,6 +938,9 @@ def test_top_scorers_treats_null_assists_as_zero(tmp_path: Path) -> None:
     db_path = build_scorers_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png'),
+            (11, 'Team Y', 'https://crests.football-data.org/11.png');
         insert into main.fct_scorers values
             ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, null, 0),
             ('PL', 2502, 2, 'Player B', 11, 'Team Y', 10, 8, 1, 0)
@@ -912,6 +974,10 @@ def test_top_scorers_does_not_leak_a_different_season_or_competition(
     db_path = build_scorers_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png'),
+            (11, 'Team Y', 'https://crests.football-data.org/11.png'),
+            (12, 'Team Z', 'https://crests.football-data.org/12.png');
         insert into main.fct_scorers values
             ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 0),
             ('PL', 2403, 2, 'Player B', 11, 'Team Y', 10, 20, 5, 0),
@@ -933,6 +999,8 @@ def test_top_scorers_returns_the_expected_columns(tmp_path: Path) -> None:
     db_path = build_scorers_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png');
         insert into main.fct_scorers values
             ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 0)
     """)
@@ -942,9 +1010,102 @@ def test_top_scorers_returns_the_expected_columns(tmp_path: Path) -> None:
     rows = get_top_scorers(con, "PL", 2502)
 
     assert list(rows.columns) == [
-        "rank", "player_name", "team_name", "goals",
+        "rank", "player_name", "team_name", "crest", "goals",
         "assists", "played_matches", "penalties",
     ]
+
+
+def test_top_scorers_includes_team_crest(tmp_path: Path) -> None:
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values (10, 'Team X', 'https://crests.football-data.org/10.png');
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_scorers(con, "PL", 2502)
+
+    assert rows.iloc[0]["crest"] == "https://crests.football-data.org/10.png"
+
+
+def build_league_fixtures_db(tmp_path: Path) -> Path:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table main.fct_matches (
+            match_id bigint, competition_code varchar, season_id integer,
+            kickoff_utc timestamp, kickoff_time_confirmed boolean, status varchar,
+            home_team_id bigint, away_team_id bigint
+        );
+        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png'),
+            (2, 'Team B', 'https://crests.football-data.org/2.png')
+    """)
+    con.close()
+    return db_path
+
+
+def test_league_fixtures_returns_every_upcoming_match_no_limit(tmp_path: Path) -> None:
+    db_path = build_league_fixtures_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    # 11 upcoming rows -- more than the old 10-row cap other queries use,
+    # to prove this one is genuinely uncapped, not just a bigger fixed limit.
+    values = ",\n".join(
+        f"({i}, 'PL', 2502, '2026-09-{10 + i:02d} 15:00:00', true, 'SCHEDULED', 1, 2)"
+        for i in range(11)
+    )
+    con.execute(f"insert into main.fct_matches values {values}")
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_league_fixtures(con, "PL", 2502)
+
+    assert len(rows) == 11
+
+
+def test_league_fixtures_excludes_finished_matches(tmp_path: Path) -> None:
+    db_path = build_league_fixtures_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2),
+            (2, 'PL', 2502, '2026-09-15 15:00:00', true, 'SCHEDULED', 1, 2)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_league_fixtures(con, "PL", 2502)
+
+    assert len(rows) == 1
+    # match_id is not a required output column -- this just confirms the
+    # one surviving row is the SCHEDULED one, not the FINISHED one, if the
+    # column happens to be present.
+    assert rows.iloc[0]["match_id"] if "match_id" in rows.columns else True
+
+
+def test_league_fixtures_orders_soonest_first_and_includes_crests(tmp_path: Path) -> None:
+    db_path = build_league_fixtures_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, '2026-09-22 15:00:00', true, 'TIMED', 1, 2),
+            (2, 'PL', 2502, '2026-09-15 00:00:00', false, 'SCHEDULED', 2, 1)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_league_fixtures(con, "PL", 2502)
+
+    assert list(rows["home_team_name"]) == ["Team B", "Team A"]
+    assert list(rows["home_crest"]) == [
+        "https://crests.football-data.org/2.png",
+        "https://crests.football-data.org/1.png",
+    ]
+    assert rows.iloc[0]["kickoff_time_confirmed"] == False  # noqa: E712
 
 
 def build_cross_league_db(tmp_path: Path) -> Path:

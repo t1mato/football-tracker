@@ -161,7 +161,7 @@ def get_connection(db_path: Path = DEFAULT_DB_PATH) -> ConnectionLike:
 @st.cache_data(ttl=600)
 def get_competitions(_con: ConnectionLike) -> pd.DataFrame:
     return _con.execute("""
-        select competition_code, competition_name
+        select competition_code, competition_name, area_name, emblem, area_flag
         from dim_competitions
         order by competition_name
     """).df()
@@ -229,7 +229,7 @@ def get_standings(
 
     table = _con.execute(
         """
-        select f.position, t.team_name, f.played_games, f.won, f.draw,
+        select f.position, t.team_name, t.crest, f.played_games, f.won, f.draw,
                f.lost, f.goals_for, f.goals_against, f.goal_difference, f.points, f.form,
                t.team_id
         from fct_standings_snapshot f
@@ -286,6 +286,32 @@ def get_upcoming_matches(
 
 
 @st.cache_data(ttl=600)
+def get_league_fixtures(
+    _con: ConnectionLike, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """Every upcoming fixture for a competition/season, no limit -- the
+    League popup's Fixtures tab shows everything, unlike
+    get_upcoming_matches' fixed 10-row window for the old Competition Hub
+    page.
+    """
+    return _con.execute(
+        f"""
+        select f.kickoff_utc, f.kickoff_time_confirmed,
+               ht.team_name as home_team_name, ht.crest as home_crest,
+               aw.team_name as away_team_name, aw.crest as away_crest
+        from fct_matches f
+        join dim_teams ht on f.home_team_id = ht.team_id
+        join dim_teams aw on f.away_team_id = aw.team_id
+        where f.competition_code = ? and f.season_id = ?
+          and f.status in ('{"', '".join(_UPCOMING_STATUSES)}')
+        order by f.kickoff_utc asc
+        """,  # nosec B608 -- only the hardcoded _UPCOMING_STATUSES constant
+        # is interpolated; competition_code/season_id are bound via ?.
+        [competition_code, season_id],
+    ).df()
+
+
+@st.cache_data(ttl=600)
 def get_matches_for_picker(
     _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
@@ -315,7 +341,9 @@ def get_top_scorers(
     """fct_scorers already carries player_name/team_name denormalized on
     the fact row (the source API embeds scorer names directly, unlike
     matches/standings, which only carry team_id and need dim_teams) -- no
-    join needed here.
+    join needed for those. A join to dim_teams is needed now, though,
+    for the one column fct_scorers doesn't carry: crest. team_name itself
+    still comes from fct_scorers directly, not from the join.
 
     rank is computed with rank(), not row_number() and not dense_rank():
     two players tied on every sort key must share a rank, with the next
@@ -353,15 +381,16 @@ def get_top_scorers(
         """
         select
             rank() over (
-                order by goals desc, coalesce(assists, 0) desc, played_matches asc
+                order by s.goals desc, coalesce(s.assists, 0) desc, s.played_matches asc
             ) as rank,
-            player_name, team_name, goals,
-            coalesce(assists, 0) as assists,
-            played_matches,
-            coalesce(penalties, 0) as penalties
-        from fct_scorers
-        where competition_code = ? and season_id = ?
-        order by rank, player_name
+            s.player_name, s.team_name, t.crest, s.goals,
+            coalesce(s.assists, 0) as assists,
+            s.played_matches,
+            coalesce(s.penalties, 0) as penalties
+        from fct_scorers s
+        join dim_teams t on s.team_id = t.team_id
+        where s.competition_code = ? and s.season_id = ?
+        order by rank, s.player_name
         """,
         [competition_code, season_id],
     ).df()
