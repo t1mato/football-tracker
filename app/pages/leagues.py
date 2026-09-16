@@ -7,7 +7,7 @@ league at once doesn't fit inside any one league's popup.
 import pandas as pd
 import streamlit as st
 
-from app.formatting import format_kickoff, season_label
+from app.formatting import format_kickoff, format_score, season_label
 from app.queries import (
     get_competition_seasons,
     get_competitions,
@@ -15,8 +15,11 @@ from app.queries import (
     get_cross_league_stats,
     get_current_season_id,
     get_league_fixtures,
+    get_league_recent_results,
     get_reconstructed_final_standings,
     get_standings,
+    get_streaks,
+    get_teams_in_season,
     get_top_scorers,
 )
 
@@ -42,7 +45,9 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
     if pd.notna(emblem):
         st.image(emblem, width=64)
 
-    tab_table, tab_fixtures, tab_leaders = st.tabs(["Table", "Fixtures", "Leaders"])
+    tab_table, tab_results, tab_fixtures, tab_leaders, tab_streaks = st.tabs(
+        ["Table", "Recent Results", "Fixtures", "Leaders", "Streaks"]
+    )
 
     seasons = get_competition_seasons(con, competition_code)
     current_season_id = get_current_season_id(con, competition_code)
@@ -93,6 +98,31 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
                     hide_index=True,
                 )
 
+    with tab_results:
+        results = get_league_recent_results(con, competition_code, season_id)
+        if results.empty:
+            st.info("No results yet this season.")
+        else:
+            results = results.copy()
+            results["Kickoff (UTC)"] = results.apply(format_kickoff, axis=1)
+            results["Score"] = results.apply(
+                lambda r: format_score(r["full_time_home"], r["full_time_away"]), axis=1
+            )
+            display_cols = results[
+                ["home_crest", "home_team_name", "Score", "away_team_name", "away_crest",
+                 "Kickoff (UTC)"]
+            ]
+            st.dataframe(
+                display_cols,
+                column_config={
+                    "home_crest": st.column_config.ImageColumn("", width="small"),
+                    "home_team_name": "Home",
+                    "away_crest": st.column_config.ImageColumn("", width="small"),
+                    "away_team_name": "Away",
+                },
+                hide_index=True,
+            )
+
     with tab_fixtures:
         fixtures = get_league_fixtures(con, competition_code, season_id)
         if fixtures.empty:
@@ -132,6 +162,57 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
                     "penalties": "Pen",
                 },
                 hide_index=True,
+            )
+
+    with tab_streaks:
+        streaks = get_streaks(con, competition_code)
+        if streaks.empty:
+            st.info("No streak data available for this competition.")
+        else:
+            current_team_ids = set(
+                get_teams_in_season(con, competition_code, season_id)["team_id"]
+            )
+
+            st.subheader("Current Streaks")
+            current = streaks[streaks["team_id"].isin(current_team_ids)][
+                ["team_name", "current_win_streak", "current_unbeaten_streak"]
+            ].sort_values(
+                by=["current_win_streak", "current_unbeaten_streak", "team_name"],
+                ascending=[False, False, True],
+            )
+            st.dataframe(
+                current,
+                column_config={
+                    "team_name": "Team",
+                    "current_win_streak": "Win Streak",
+                    "current_unbeaten_streak": "Unbeaten Streak",
+                },
+                hide_index=True,
+            )
+            st.caption(
+                "A streak can span the season boundary -- it doesn't reset just "
+                "because a new season started."
+            )
+
+            st.subheader("All-Time Records")
+            longest = streaks[
+                ["team_name", "longest_win_streak", "longest_unbeaten_streak"]
+            ].sort_values(
+                by=["longest_win_streak", "longest_unbeaten_streak", "team_name"],
+                ascending=[False, False, True],
+            )
+            st.dataframe(
+                longest,
+                column_config={
+                    "team_name": "Team",
+                    "longest_win_streak": "Longest Win Streak",
+                    "longest_unbeaten_streak": "Longest Unbeaten Streak",
+                },
+                hide_index=True,
+            )
+            st.caption(
+                '"All-time" means this project\'s backfilled history (around 4 '
+                "seasons), not the competition's full real-world record."
             )
 
 
