@@ -1,7 +1,7 @@
 """Leagues -- card grid of the 6 tracked competitions, each opening a
-popup with its full Table, Fixtures, and Leaders. The Cross-League
-Dashboard lives as its own section below the grid, since comparing every
-league at once doesn't fit inside any one league's popup.
+popup with its full Table, Recent Results, Fixtures, Leaders, and Streaks.
+The Cross-League Dashboard lives as its own section below the grid, since
+comparing every league at once doesn't fit inside any one league's popup.
 """
 
 import pandas as pd
@@ -169,8 +169,12 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
         if streaks.empty:
             st.info("No streak data available for this competition.")
         else:
+            st.caption(
+                "Streaks reflect current form as of today, across the current "
+                "season's active teams -- independent of the season selected above."
+            )
             current_team_ids = set(
-                get_teams_in_season(con, competition_code, season_id)["team_id"]
+                get_teams_in_season(con, competition_code, current_season_id)["team_id"]
             )
 
             st.subheader("Current Streaks")

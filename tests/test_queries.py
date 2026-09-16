@@ -1167,8 +1167,8 @@ def test_league_recent_results_orders_newest_first_with_scores_and_crests(
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.fct_matches values
-            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, null, null),
-            (2, 'PL', 2502, '2026-09-08 15:00:00', true, 'FINISHED', 2, 1, null, null)
+            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, 2, 1),
+            (2, 'PL', 2502, '2026-09-08 15:00:00', true, 'FINISHED', 2, 1, 0, 0)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
@@ -1180,6 +1180,10 @@ def test_league_recent_results_orders_newest_first_with_scores_and_crests(
         "https://crests.football-data.org/2.png",
         "https://crests.football-data.org/1.png",
     ]
+    assert rows.iloc[0]["full_time_home"] == 0
+    assert rows.iloc[0]["full_time_away"] == 0
+    assert rows.iloc[1]["full_time_home"] == 2
+    assert rows.iloc[1]["full_time_away"] == 1
 
 
 def build_cross_league_db(tmp_path: Path) -> Path:
