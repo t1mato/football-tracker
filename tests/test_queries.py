@@ -27,6 +27,7 @@ from app.queries import (
     get_head_to_head,
     get_head_to_head_matches,
     get_league_fixtures,
+    get_league_recent_results,
     get_match_detail,
     get_matches_for_picker,
     get_player_bio,
@@ -1054,7 +1055,8 @@ def build_league_fixtures_db(tmp_path: Path) -> Path:
         create table main.fct_matches (
             match_id bigint, competition_code varchar, season_id integer,
             kickoff_utc timestamp, kickoff_time_confirmed boolean, status varchar,
-            home_team_id bigint, away_team_id bigint
+            home_team_id bigint, away_team_id bigint,
+            full_time_home integer, full_time_away integer
         );
         create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
         insert into main.dim_teams values
@@ -1071,7 +1073,8 @@ def test_league_fixtures_returns_every_upcoming_match_no_limit(tmp_path: Path) -
     # 11 upcoming rows -- more than the old 10-row cap other queries use,
     # to prove this one is genuinely uncapped, not just a bigger fixed limit.
     values = ",\n".join(
-        f"({i}, 'PL', 2502, '2026-09-{10 + i:02d} 15:00:00', true, 'SCHEDULED', 1, 2)"
+        f"({i}, 'PL', 2502, '2026-09-{10 + i:02d} 15:00:00', true, 'SCHEDULED', 1, 2,"
+        " null, null)"
         for i in range(11)
     )
     con.execute(f"insert into main.fct_matches values {values}")
@@ -1088,8 +1091,8 @@ def test_league_fixtures_excludes_finished_matches(tmp_path: Path) -> None:
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.fct_matches values
-            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2),
-            (2, 'PL', 2502, '2026-09-15 15:00:00', true, 'SCHEDULED', 1, 2)
+            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, null, null),
+            (2, 'PL', 2502, '2026-09-15 15:00:00', true, 'SCHEDULED', 1, 2, null, null)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
@@ -1104,8 +1107,8 @@ def test_league_fixtures_orders_soonest_first_and_includes_crests(tmp_path: Path
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.fct_matches values
-            (1, 'PL', 2502, '2026-09-22 15:00:00', true, 'TIMED', 1, 2),
-            (2, 'PL', 2502, '2026-09-15 00:00:00', false, 'SCHEDULED', 2, 1)
+            (1, 'PL', 2502, '2026-09-22 15:00:00', true, 'TIMED', 1, 2, null, null),
+            (2, 'PL', 2502, '2026-09-15 00:00:00', false, 'SCHEDULED', 2, 1, null, null)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
@@ -1118,6 +1121,65 @@ def test_league_fixtures_orders_soonest_first_and_includes_crests(tmp_path: Path
         "https://crests.football-data.org/1.png",
     ]
     assert rows.iloc[0]["kickoff_time_confirmed"] == False  # noqa: E712
+
+
+def test_league_recent_results_returns_every_finished_match_no_limit(
+    tmp_path: Path,
+) -> None:
+    db_path = build_league_fixtures_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    # 11 finished rows -- one more than the old 10-row window other pages
+    # use, to prove this is genuinely uncapped.
+    values = ",\n".join(
+        f"({i}, 'PL', 2502, '2026-09-{i:02d} 15:00:00', true, 'FINISHED', 1, 2,"
+        " null, null)"
+        for i in range(1, 12)
+    )
+    con.execute(f"insert into main.fct_matches values {values}")
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_league_recent_results(con, "PL", 2502)
+
+    assert len(rows) == 11
+
+
+def test_league_recent_results_excludes_upcoming_matches(tmp_path: Path) -> None:
+    db_path = build_league_fixtures_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, null, null),
+            (2, 'PL', 2502, '2026-09-15 15:00:00', true, 'SCHEDULED', 1, 2, null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_league_recent_results(con, "PL", 2502)
+
+    assert len(rows) == 1
+
+
+def test_league_recent_results_orders_newest_first_with_scores_and_crests(
+    tmp_path: Path,
+) -> None:
+    db_path = build_league_fixtures_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, null, null),
+            (2, 'PL', 2502, '2026-09-08 15:00:00', true, 'FINISHED', 2, 1, null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_league_recent_results(con, "PL", 2502)
+
+    assert list(rows["home_team_name"]) == ["Team B", "Team A"]
+    assert list(rows["home_crest"]) == [
+        "https://crests.football-data.org/2.png",
+        "https://crests.football-data.org/1.png",
+    ]
 
 
 def build_cross_league_db(tmp_path: Path) -> Path:

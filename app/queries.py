@@ -312,6 +312,33 @@ def get_league_fixtures(
 
 
 @st.cache_data(ttl=600)
+def get_league_recent_results(
+    _con: ConnectionLike, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """Every finished match for a competition/season, no limit -- the
+    League popup's Recent Results tab, mirroring get_league_fixtures'
+    exact shape but for FINISHED/AWARDED matches with scores instead of
+    upcoming ones.
+    """
+    return _con.execute(
+        f"""
+        select f.kickoff_utc, f.kickoff_time_confirmed,
+               ht.team_name as home_team_name, ht.crest as home_crest,
+               aw.team_name as away_team_name, aw.crest as away_crest,
+               f.full_time_home, f.full_time_away
+        from fct_matches f
+        left join dim_teams ht on f.home_team_id = ht.team_id
+        left join dim_teams aw on f.away_team_id = aw.team_id
+        where f.competition_code = ? and f.season_id = ?
+          and f.status in ('{"', '".join(_FINISHED_STATUSES)}')
+        order by f.kickoff_utc desc
+        """,  # nosec B608 -- only the hardcoded _FINISHED_STATUSES constant
+        # is interpolated; competition_code/season_id are bound via ?.
+        [competition_code, season_id],
+    ).df()
+
+
+@st.cache_data(ttl=600)
 def get_matches_for_picker(
     _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
