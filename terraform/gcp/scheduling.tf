@@ -84,9 +84,37 @@ resource "google_monitoring_notification_channel" "email_alert" {
   }
 }
 
+resource "google_logging_metric" "scheduler_trigger_failed" {
+  project = var.project_id
+  name    = "scheduler-trigger-failed"
+  # Cloud Scheduler logs an AttemptFinished entry for every trigger attempt,
+  # ERROR-severity on failure -- confirmed against the real log from this
+  # project's own 2026-09-09 oidc_token/401 incident (resource.type
+  # "cloud_scheduler_job", severity "ERROR", jsonPayload.status
+  # "UNAUTHENTICATED"). This closes PLAN.md's documented blind spot (the
+  # FAILED condition below only fires once a Workflow *execution* finishes,
+  # so a Scheduler-side auth failure that creates zero executions produces
+  # no execution, no metric point, no email) without the same-day detection
+  # cost a condition_absent approach would carry: condition_absent's
+  # duration caps at 23h30m (confirmed live, 2026-09-17 -- Terraform's
+  # `google_monitoring_alert_policy` update was rejected with "Durations
+  # longer than 23h30m are not supported"), which is *shorter* than this
+  # workflow's ~24h cadence -- any absence duration under 24h fires every
+  # single night, since the metric always goes quiet for just under 24h
+  # between consecutive healthy finishes. A log-based metric on the
+  # Scheduler's own attempt outcome has no such cadence conflict: it fires
+  # the moment a bad attempt is logged, not after a day of silence.
+  filter = "resource.type=\"cloud_scheduler_job\" AND resource.labels.job_id=\"${google_cloud_scheduler_job.nightly_trigger.name}\" AND severity=\"ERROR\""
+
+  metric_descriptor {
+    metric_kind = "DELTA"
+    value_type  = "INT64"
+  }
+}
+
 resource "google_monitoring_alert_policy" "nightly_pipeline_failed" {
   project      = var.project_id
-  display_name = "Nightly pipeline workflow failed"
+  display_name = "Nightly pipeline failed or didn't run"
   combiner     = "OR"
 
   conditions {
@@ -96,6 +124,22 @@ resource "google_monitoring_alert_policy" "nightly_pipeline_failed" {
       # Confirmed against the real metric descriptor: the label is `status` (not
       # `result`, despite the metric's own name), and the value is uppercase "FAILED".
       filter          = "metric.type=\"workflows.googleapis.com/finished_execution_count\" AND resource.type=\"workflows.googleapis.com/Workflow\" AND resource.label.workflow_id=\"${google_workflows_workflow.nightly_pipeline.name}\" AND metric.label.status=\"FAILED\""
+      comparison      = "COMPARISON_GT"
+      threshold_value = 0
+      duration        = "0s"
+
+      aggregations {
+        alignment_period   = "300s"
+        per_series_aligner = "ALIGN_SUM"
+      }
+    }
+  }
+
+  conditions {
+    display_name = "nightly-trigger's own invocation attempt failed"
+
+    condition_threshold {
+      filter          = "resource.type=\"cloud_scheduler_job\" AND metric.type=\"logging.googleapis.com/user/${google_logging_metric.scheduler_trigger_failed.name}\""
       comparison      = "COMPARISON_GT"
       threshold_value = 0
       duration        = "0s"
