@@ -29,11 +29,9 @@ from app.queries import (
     get_league_fixtures,
     get_league_recent_results,
     get_match_detail,
-    get_matches_for_picker,
     get_player_bio,
     get_player_scoring_history,
     get_players_directory,
-    get_recent_matches,
     get_reconstructed_final_standings,
     get_standings,
     get_streaks,
@@ -44,7 +42,6 @@ from app.queries import (
     get_teams_for_league,
     get_teams_in_season,
     get_top_scorers,
-    get_upcoming_matches,
 )
 
 
@@ -498,58 +495,6 @@ def build_matches_db(tmp_path: Path) -> Path:
     """)
     con.close()
     return db_path
-
-
-def test_recent_matches_are_finished_or_awarded_newest_first(tmp_path: Path) -> None:
-    db_path = build_matches_db(tmp_path)
-    con = duckdb.connect(str(db_path))
-    con.execute("""
-        insert into main.fct_matches values
-            (1, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, 2, 1),
-            (2, 'PL', 2502, '2026-09-08 15:00:00', true, 'FINISHED', 2, 1, 0, 0),
-            (3, 'PL', 2502, '2026-09-15 15:00:00', true, 'SCHEDULED', 1, 2, null, null)
-    """)
-    con.close()
-    con = duckdb.connect(str(db_path), read_only=True)
-
-    rows = get_recent_matches(con, "PL", 2502)
-
-    assert list(rows["match_id"]) == [2, 1]
-
-
-def test_upcoming_matches_are_scheduled_or_timed_soonest_first(tmp_path: Path) -> None:
-    db_path = build_matches_db(tmp_path)
-    con = duckdb.connect(str(db_path))
-    con.execute("""
-        insert into main.fct_matches values
-            (3, 'PL', 2502, '2026-09-22 15:00:00', true, 'TIMED', 1, 2, null, null),
-            (4, 'PL', 2502, '2026-09-15 00:00:00', false, 'SCHEDULED', 2, 1, null, null),
-            (5, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 1, 2, 1, 1)
-    """)
-    con.close()
-    con = duckdb.connect(str(db_path), read_only=True)
-
-    rows = get_upcoming_matches(con, "PL", 2502)
-
-    assert list(rows["match_id"]) == [4, 3]
-    assert rows.iloc[0]["kickoff_time_confirmed"] == False  # noqa: E712
-
-
-def test_matches_for_picker_are_ordered_by_kickoff_ascending(tmp_path: Path) -> None:
-    db_path = build_matches_db(tmp_path)
-    con = duckdb.connect(str(db_path))
-    con.execute("""
-        insert into main.fct_matches values
-            (1, 'PL', 2502, '2026-09-08 15:00:00', true, 'FINISHED', 1, 2, 2, 1),
-            (2, 'PL', 2502, '2026-09-01 15:00:00', true, 'FINISHED', 2, 1, 0, 0)
-    """)
-    con.close()
-    con = duckdb.connect(str(db_path), read_only=True)
-
-    rows = get_matches_for_picker(con, "PL", 2502)
-
-    assert list(rows["match_id"]) == [2, 1]
-    assert list(rows["home_team_name"]) == ["Team B", "Team A"]
 
 
 def build_match_detail_db(tmp_path: Path) -> Path:
@@ -1072,6 +1017,7 @@ def test_league_fixtures_orders_soonest_first_and_includes_crests(tmp_path: Path
         "https://crests.football-data.org/1.png",
     ]
     assert rows.iloc[0]["kickoff_time_confirmed"] == False  # noqa: E712
+    assert list(rows["match_id"]) == [2, 1]
 
 
 def test_league_recent_results_returns_every_finished_match_no_limit(
@@ -1135,6 +1081,7 @@ def test_league_recent_results_orders_newest_first_with_scores_and_crests(
     assert rows.iloc[0]["full_time_away"] == 0
     assert rows.iloc[1]["full_time_home"] == 2
     assert rows.iloc[1]["full_time_away"] == 1
+    assert list(rows["match_id"]) == [2, 1]
 
 
 def build_cross_league_db(tmp_path: Path) -> Path:

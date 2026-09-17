@@ -107,13 +107,6 @@ LEAGUE_TABLE_STAGES = ("REGULAR_SEASON", "GROUP_STAGE", "LEAGUE_STAGE")
 _FINISHED_STATUSES = ("FINISHED", "AWARDED")
 _UPCOMING_STATUSES = ("SCHEDULED", "TIMED")
 
-_MATCH_COLUMNS = (
-    "f.match_id, f.kickoff_utc, f.kickoff_time_confirmed, "
-    "ht.team_name as home_team_name, aw.team_name as away_team_name, "
-    "f.full_time_home, f.full_time_away"
-)
-
-
 @dataclass(frozen=True)
 class StandingsResult:
     table: pd.DataFrame | None
@@ -244,48 +237,6 @@ def get_standings(
 
 
 @st.cache_data(ttl=600)
-def get_recent_matches(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    return _con.execute(
-        f"""
-        select {_MATCH_COLUMNS}
-        from fct_matches f
-        join dim_teams ht on f.home_team_id = ht.team_id
-        join dim_teams aw on f.away_team_id = aw.team_id
-        where f.competition_code = ? and f.season_id = ?
-          and f.status in ('{"', '".join(_FINISHED_STATUSES)}')
-        order by f.kickoff_utc desc
-        limit 10
-        """,  # nosec B608 -- only the hardcoded _MATCH_COLUMNS/_FINISHED_STATUSES
-        # constants are interpolated; the real user-supplied values
-        # (competition_code, season_id) are bound via ? placeholders below.
-        [competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_upcoming_matches(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    return _con.execute(
-        f"""
-        select {_MATCH_COLUMNS}
-        from fct_matches f
-        join dim_teams ht on f.home_team_id = ht.team_id
-        join dim_teams aw on f.away_team_id = aw.team_id
-        where f.competition_code = ? and f.season_id = ?
-          and f.status in ('{"', '".join(_UPCOMING_STATUSES)}')
-        order by f.kickoff_utc asc
-        limit 10
-        """,  # nosec B608 -- only the hardcoded _MATCH_COLUMNS/_UPCOMING_STATUSES
-        # constants are interpolated; the real user-supplied values
-        # (competition_code, season_id) are bound via ? placeholders below.
-        [competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
 def get_league_fixtures(
     _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
@@ -296,7 +247,7 @@ def get_league_fixtures(
     """
     return _con.execute(
         f"""
-        select f.kickoff_utc, f.kickoff_time_confirmed,
+        select f.match_id, f.kickoff_utc, f.kickoff_time_confirmed,
                ht.team_name as home_team_name, ht.crest as home_crest,
                aw.team_name as away_team_name, aw.crest as away_crest
         from fct_matches f
@@ -322,7 +273,7 @@ def get_league_recent_results(
     """
     return _con.execute(
         f"""
-        select f.kickoff_utc, f.kickoff_time_confirmed,
+        select f.match_id, f.kickoff_utc, f.kickoff_time_confirmed,
                ht.team_name as home_team_name, ht.crest as home_crest,
                aw.team_name as away_team_name, aw.crest as away_crest,
                f.full_time_home, f.full_time_away
@@ -334,29 +285,6 @@ def get_league_recent_results(
         order by f.kickoff_utc desc
         """,  # nosec B608 -- only the hardcoded _FINISHED_STATUSES constant
         # is interpolated; competition_code/season_id are bound via ?.
-        [competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_matches_for_picker(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    """Every match in this competition/season, for a match-selection dropdown.
-
-    Unlike get_recent_matches/get_upcoming_matches, no status filter and no
-    limit -- the picker needs to find any match, not just the last/next 10.
-    """
-    return _con.execute(
-        """
-        select f.match_id, f.kickoff_utc,
-               ht.team_name as home_team_name, aw.team_name as away_team_name
-        from fct_matches f
-        join dim_teams ht on f.home_team_id = ht.team_id
-        join dim_teams aw on f.away_team_id = aw.team_id
-        where f.competition_code = ? and f.season_id = ?
-        order by f.kickoff_utc asc
-        """,
         [competition_code, season_id],
     ).df()
 

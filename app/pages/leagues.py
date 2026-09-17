@@ -7,8 +7,15 @@ comparing every league at once doesn't fit inside any one league's popup.
 import pandas as pd
 import streamlit as st
 
-from app.formatting import format_kickoff, format_score, season_label
+from app.formatting import (
+    format_kickoff,
+    format_score,
+    format_weather,
+    season_label,
+    venue_is_resolved,
+)
 from app.queries import (
+    ConnectionLike,
     get_competition_seasons,
     get_competitions,
     get_connection,
@@ -16,6 +23,7 @@ from app.queries import (
     get_current_season_id,
     get_league_fixtures,
     get_league_recent_results,
+    get_match_detail,
     get_reconstructed_final_standings,
     get_standings,
     get_streaks,
@@ -37,6 +45,38 @@ def _color_gd(value: object) -> str:
     if value < 0:
         return "color: #D93B3B"
     return "color: inherit"
+
+
+def _render_match_detail(_con: ConnectionLike, match_id: int) -> None:
+    """Venue and weather only -- the row that was clicked already shows
+    teams/kickoff/score, so this doesn't repeat them.
+    """
+    detail = get_match_detail(_con, match_id)
+    if detail is None:
+        st.info("Could not load this match's detail.")
+        return
+
+    st.subheader("Venue")
+    if not venue_is_resolved(detail["venue_needs_review"]):
+        st.info("Venue location not yet resolved.")
+    else:
+        st.write(detail["venue_display_name"])
+        if pd.notna(detail["capacity"]):
+            st.write(f"Capacity: {int(detail['capacity']):,}")
+        st.map(
+            data={"lat": [detail["latitude"]], "lon": [detail["longitude"]]},
+            zoom=13,
+        )
+
+    st.subheader("Weather")
+    st.write(
+        format_weather(
+            detail["temperature_2m"],
+            detail["precipitation"],
+            detail["wind_speed_10m"],
+            detail["weather_data_type"],
+        )
+    )
 
 
 @st.dialog("League detail", width="large")
@@ -112,7 +152,7 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
                 ["home_crest", "home_team_name", "Score", "away_team_name", "away_crest",
                  "Kickoff (UTC)"]
             ]
-            st.dataframe(
+            event = st.dataframe(
                 display_cols,
                 column_config={
                     "home_crest": st.column_config.ImageColumn("", width="small"),
@@ -121,7 +161,14 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
                     "away_team_name": "Away",
                 },
                 hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key=f"results_{competition_code}_{season_id}",
             )
+            if event.selection.rows:
+                selected_match_id = int(results.iloc[event.selection.rows[0]]["match_id"])
+                st.divider()
+                _render_match_detail(con, selected_match_id)
 
     with tab_fixtures:
         fixtures = get_league_fixtures(con, competition_code, season_id)
@@ -133,7 +180,7 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
             display_cols = fixtures[
                 ["home_crest", "home_team_name", "Kickoff (UTC)", "away_team_name", "away_crest"]
             ]
-            st.dataframe(
+            event = st.dataframe(
                 display_cols,
                 column_config={
                     "home_crest": st.column_config.ImageColumn("", width="small"),
@@ -142,7 +189,14 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
                     "away_team_name": "Away",
                 },
                 hide_index=True,
+                on_select="rerun",
+                selection_mode="single-row",
+                key=f"fixtures_{competition_code}_{season_id}",
             )
+            if event.selection.rows:
+                selected_match_id = int(fixtures.iloc[event.selection.rows[0]]["match_id"])
+                st.divider()
+                _render_match_detail(con, selected_match_id)
 
     with tab_leaders:
         leaders = get_top_scorers(con, competition_code, season_id)

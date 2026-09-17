@@ -1,8 +1,6 @@
 """Router: places the logo, defines the app's 3 top-nav pages, and hands off
-to st.navigation. One old page file still exists on disk but is no longer
-reachable from here -- match_center.py's weather/venue detail and its
-?match_id= deep link have no new home yet. The other 7 have been deleted
-now that leagues.py/teams.py/players.py carry their content for real.
+to st.navigation. All 8 of the original single-purpose page files have now
+been deleted -- leagues.py/teams.py/players.py carry their content for real.
 
 streamlit run app/streamlit_app.py
 """
