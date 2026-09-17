@@ -1,8 +1,9 @@
 """Teams -- league-filtered grid of teams, each opening a popup with
-cross-competition Form/Fixtures, this-league Stats/Streaks, and a
+cross-competition Form/Fixtures, this-league Stats/Position/Streaks, and a
 Compare vs... head-to-head lookup.
 """
 
+import altair as alt
 import pandas as pd
 import streamlit as st
 
@@ -16,6 +17,7 @@ from app.queries import (
     get_head_to_head_matches,
     get_standings,
     get_streaks,
+    get_team_position_history,
     get_team_recent_form,
     get_team_upcoming,
     get_teams_for_league,
@@ -44,8 +46,8 @@ def show_team_dialog(team_id: int, team_name: str, crest: object,
     if pd.notna(crest):
         st.image(crest, width=64)
 
-    tab_form, tab_fixtures, tab_stats, tab_streaks, tab_compare = st.tabs(
-        ["Form", "Fixtures", "Stats", "Streaks", "Compare vs..."]
+    tab_form, tab_fixtures, tab_stats, tab_position, tab_streaks, tab_compare = st.tabs(
+        ["Form", "Fixtures", "Stats", "Position", "Streaks", "Compare vs..."]
     )
 
     with tab_form:
@@ -117,6 +119,27 @@ def show_team_dialog(team_id: int, team_name: str, crest: object,
                 cols2[1].metric("Drawn", int(r["draw"]))
                 cols2[2].metric("Lost", int(r["lost"]))
                 cols2[3].metric("GF-GA", f"{int(r['goals_for'])}-{int(r['goals_against'])}")
+
+    with tab_position:
+        history = get_team_position_history(con, team_id, league_code, league_season_id)
+        if history.empty:
+            st.info("No position history to chart yet this season in this competition.")
+        else:
+            chart = (
+                alt.Chart(history)
+                .mark_line(point=True, strokeWidth=2)
+                .encode(
+                    x=alt.X("matchday:Q", title="Matchday", axis=alt.Axis(tickMinStep=1)),
+                    y=alt.Y("position:Q", scale=alt.Scale(reverse=True), title="Position"),
+                    tooltip=["matchday", "position"],
+                )
+            )
+            st.altair_chart(chart, width="stretch")
+            st.caption(
+                "Reconstructed from match results, not the official table -- may drift "
+                "from it (points deductions, tiebreakers not captured here), and omits "
+                "a team that hasn't yet played the season's latest matchday."
+            )
 
     with tab_streaks:
         st.caption("In this league only")

@@ -38,7 +38,6 @@ from app.queries import (
     get_standings,
     get_streaks,
     get_team_competitions,
-    get_team_form,
     get_team_position_history,
     get_team_recent_form,
     get_team_upcoming,
@@ -744,54 +743,6 @@ def test_team_competitions_covers_every_current_competition_for_one_team(
     assert len(pl_rows) == 1
 
 
-def test_team_form_returns_the_row_when_one_exists(tmp_path: Path) -> None:
-    db_path = build_team_profile_db(tmp_path)
-    con = duckdb.connect(str(db_path))
-    con.execute("""
-        insert into main.mart_team_form values
-            (1, 'PL', 2502, 'WWDLW', 3, 1, 1, 8, 4)
-    """)
-    con.close()
-    con = duckdb.connect(str(db_path), read_only=True)
-
-    form = get_team_form(con, 1, "PL", 2502)
-
-    assert form is not None
-    assert form["last_5_results"] == "WWDLW"
-    assert form["wins"] == 3
-
-
-def test_team_form_returns_none_when_the_team_has_no_results_yet(tmp_path: Path) -> None:
-    """A team with zero counted results this season/competition has no row
-    in mart_team_form at all -- not a null-valued one. This is the real
-    case this function exists to handle, not an edge case to skip.
-    """
-    con = duckdb.connect(str(build_team_profile_db(tmp_path)), read_only=True)
-
-    form = get_team_form(con, 1, "CL", 2601)
-
-    assert form is None
-
-
-def test_team_form_does_not_leak_a_different_seasons_row(tmp_path: Path) -> None:
-    """mart_team_form is scoped to (team_id, competition_code, season_id) --
-    a row from a prior season/competition edition must never be returned
-    for a different season_id, even for the same team+competition.
-    """
-    db_path = build_team_profile_db(tmp_path)
-    con = duckdb.connect(str(db_path))
-    con.execute("""
-        insert into main.mart_team_form values
-            (1, 'CL', 1630, 'WDDWL', 2, 2, 1, 7, 6)
-    """)
-    con.close()
-    con = duckdb.connect(str(db_path), read_only=True)
-
-    form = get_team_form(con, 1, "CL", 2557)
-
-    assert form is None
-
-
 def test_position_history_is_ordered_by_matchday(tmp_path: Path) -> None:
     db_path = build_team_profile_db(tmp_path)
     con = duckdb.connect(str(db_path))
@@ -1260,8 +1211,7 @@ def test_cross_league_stats_includes_a_competition_with_no_current_season_row(
 def test_cross_league_stats_does_not_leak_a_prior_seasons_row(tmp_path: Path) -> None:
     """PL's current season is 2502 (the max season_id). A mart row that
     exists only for PL's OLDER season (2401) must not be picked up as if
-    it were the current season's stats -- same class of leak
-    get_team_form is already tested against.
+    it were the current season's stats.
     """
     db_path = build_cross_league_db(tmp_path)
     con = duckdb.connect(str(db_path))

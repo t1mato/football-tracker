@@ -550,28 +550,6 @@ def get_team_competitions(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=600)
-def get_team_form(
-    _con: ConnectionLike, team_id: int, competition_code: str, season_id: int
-) -> pd.Series | None:
-    """mart_team_form has no row at all for a team with zero counted
-    results this season/competition -- not a null-valued row. None here
-    means exactly that, and the page must show a message, not an empty
-    form string.
-    """
-    df = _con.execute(
-        """
-        select last_5_results, wins, draws, losses, goals_for, goals_against
-        from mart_team_form
-        where team_id = ? and competition_code = ? and season_id = ?
-        """,
-        [team_id, competition_code, season_id],
-    ).df()
-    if df.empty:
-        return None
-    return df.iloc[0]
-
-
-@st.cache_data(ttl=600)
 def get_team_position_history(
     _con: ConnectionLike, team_id: int, competition_code: str, season_id: int
 ) -> pd.DataFrame:
@@ -679,8 +657,8 @@ def get_cross_league_stats(_con: ConnectionLike) -> pd.DataFrame:
     via LEFT JOIN rather than silently vanishing from the comparison.
 
     This differs from every other "no data" case in this module
-    (get_team_form/get_team_position_history return None/empty) --
-    here one query covers every competition at once, so absence is
+    (get_team_position_history returns an empty DataFrame) -- here
+    one query covers every competition at once, so absence is
     expressed per-row instead of for the whole result.
     """
     return _con.execute(
@@ -880,11 +858,6 @@ def get_team_recent_form(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
     one competition_code the way get_recent_matches does. Backed by
     fct_team_matches, which already carries this team's own goals_for/
     goals_against/result regardless of whether it played home or away.
-
-    Named get_team_recent_form, not get_team_form, to avoid colliding with
-    the existing get_team_form (mart_team_form-backed, scoped to one
-    competition/season, returns pd.Series | None) -- a different function
-    used by app/pages/team_profile.py that this task leaves untouched.
 
     Returns kickoff_utc/kickoff_time_confirmed (joined in from fct_matches
     on match_id), not fct_team_matches' own bare kickoff_date_utc -- the
