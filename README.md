@@ -10,14 +10,12 @@ asset-based orchestration — rather than on shipping quickly.
 
 ## Features
 
-- **Competition Hub** — standings, recent results and upcoming fixtures per league
-- **Match Center** — per-match venue and weather detail
-- **Team Profile** — season record, form guide, league position over time
-- **Top Scorers** — goalscoring leaderboards per competition and season
-- **Head-to-Head** — aggregated record between any two teams
-- **Cross-League Comparison** — goals per game, competitiveness, home advantage
-- **Season Archive** — browse prior seasons retained in the warehouse
-- **Streaks & Records** — win and unbeaten runs
+- **Leagues** — table, recent results, fixtures, top scorers and streaks per
+  competition, plus a cross-league comparison dashboard
+- **Teams** — a grid of teams per league, each with form, fixtures, season
+  stats, league position over time, streaks and head-to-head comparison
+- **Players** — a searchable directory with player bio and scoring history,
+  plus a cross-league Golden Boot leaderboard
 
 ## Architecture
 
