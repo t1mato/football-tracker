@@ -1,879 +1,103 @@
-"""Query layer for the Streamlit app: a cached read-only DuckDB connection
-and one function per page's data need.
+"""Streamlit-facing query layer: applies caching to warehouse.queries'
+connector-agnostic functions for the Streamlit app specifically.
 
-Read-only, always -- this project's DuckDB allows one writer or many
-readers, never both (see CLAUDE.md). This app must never hold a write lock.
+All query logic lives in warehouse/queries.py. Nothing in this file
+executes SQL directly -- it only adds @st.cache_data/@st.cache_resource
+around functions imported from there. See warehouse/queries.py's own
+docstring for why caching lives here and not there.
 """
 
-import datetime
-import os
-from dataclasses import dataclass
-from pathlib import Path
-from typing import Protocol
-
-import duckdb
-import numpy as np
-import pandas as pd
 import streamlit as st
-from google.cloud import bigquery
 
-
-def _app_destination() -> str:
-    return "bigquery" if os.environ.get("APP_DESTINATION") == "bigquery" else "duckdb"
-
-
-class CursorLike(Protocol):
-    def df(self) -> pd.DataFrame: ...
-    def fetchone(self) -> tuple[object, ...] | None: ...
-
-
-class ConnectionLike(Protocol):
-    def execute(
-        self, sql: str, params: list[object] | None = None
-    ) -> CursorLike: ...
-
-
-class _BigQueryCursor:
-    def __init__(self, job: "bigquery.QueryJob") -> None:
-        self._job = job
-
-    def df(self) -> pd.DataFrame:
-        return self._job.to_dataframe()
-
-    def fetchone(self) -> tuple[object, ...] | None:
-        row = next(iter(self._job.result()), None)
-        return tuple(row.values()) if row is not None else None
-
-
-class BigQueryConnection:
-    """Adapts google.cloud.bigquery.Client to the narrow slice of DuckDB's
-    connection interface app/queries.py actually uses --
-    .execute(sql, params) returning something with .df()/.fetchone(). No
-    query function or page needs to know which connection type it was
-    given.
-
-    Positional `?` placeholders (DuckDB's DB-API style, used throughout
-    this file) are translated to BigQuery's named `@pN` parameters here,
-    one adapter, rather than rewriting every query's SQL string.
-    """
-
-    def __init__(self, client: "bigquery.Client") -> None:
-        self._client = client
-
-    def execute(
-        self, sql: str, params: list[object] | None = None
-    ) -> _BigQueryCursor:
-        job_config = None
-        if params:
-            query_params = []
-            for i, value in enumerate(params):
-                name = f"p{i}"
-                sql = sql.replace("?", f"@{name}", 1)
-                if isinstance(value, str):
-                    type_ = "STRING"
-                elif isinstance(value, bool):
-                    type_ = "BOOL"
-                elif isinstance(value, datetime.datetime):
-                    raise TypeError(
-                        "BigQueryConnection has no datetime/Timestamp parameter support "
-                        f"yet -- got {type(value)!r}: {value!r}"
-                    )
-                elif isinstance(value, datetime.date):
-                    type_ = "DATE"
-                elif isinstance(value, (int, np.integer)):
-                    type_ = "INT64"
-                    value = int(value)
-                else:
-                    raise TypeError(
-                        "BigQueryConnection can't infer a query parameter type for "
-                        f"{type(value)!r}: {value!r}"
-                    )
-                query_params.append(
-                    bigquery.ScalarQueryParameter(name, type_, value)
-                )
-            job_config = bigquery.QueryJobConfig(query_parameters=query_params)
-        job = self._client.query(sql, job_config=job_config)
-        return _BigQueryCursor(job)
-
-
-DEFAULT_DB_PATH = Path("football_data.duckdb")
-
-# Mirrors dbt_project.yml's standings_phase_stages var (REGULAR_SEASON,
-# GROUP_STAGE, LEAGUE_STAGE) -- the same set mart_standings_over_time.sql
-# uses to identify a real league-table phase, applied here against
-# fct_standings_snapshot.stage instead of fct_matches.stage.
-LEAGUE_TABLE_STAGES = ("REGULAR_SEASON", "GROUP_STAGE", "LEAGUE_STAGE")
-
-_FINISHED_STATUSES = ("FINISHED", "AWARDED")
-_UPCOMING_STATUSES = ("SCHEDULED", "TIMED")
-
-@dataclass(frozen=True)
-class StandingsResult:
-    table: pd.DataFrame | None
-    message: str | None
-
-
-@st.cache_resource
-def get_connection(db_path: Path = DEFAULT_DB_PATH) -> ConnectionLike:
-    """One read-only connection per Streamlit session, not one per rerun."""
-    if _app_destination() == "bigquery":
-        project = os.environ["GCP_PROJECT"]
-        client = bigquery.Client(
-            project=project,
-            default_query_job_config=bigquery.QueryJobConfig(
-                default_dataset=f"{project}.main",
-                # This project's whole warehouse is a handful of small
-                # tables (same reasoning as transform/profiles.yml's
-                # identical cap) -- anything scanning more than this is a
-                # runaway query, not a real workload. New risk with a
-                # public URL specifically: nothing before this could run
-                # an arbitrary page-load query against real billing.
-                maximum_bytes_billed=1_000_000_000,
-            ),
-        )
-        return BigQueryConnection(client)
-
-    con = duckdb.connect(str(db_path), read_only=True)
-    # Load-bearing, not cosmetic -- same reasoning as transform/profiles.yml's
-    # TimeZone: 'UTC' setting. fct_matches.kickoff_utc is TIMESTAMP WITH TIME
-    # ZONE; without an explicit session TimeZone, DuckDB converts it to the
-    # MACHINE's local timezone whenever it's read out (e.g. via .df()), and
-    # nothing downstream would catch that -- app/formatting.py's kickoff
-    # formatter would print a wrong wall-clock time with a literal "UTC"
-    # suffix, silently. This project is UTC end-to-end (see CLAUDE.md);
-    # this is the one connection that hadn't yet been pinned to it.
-    #
-    # BigQuery needs no equivalent pin: google.cloud.bigquery's
-    # to_dataframe() already returns timezone-aware UTC timestamps by
-    # default (verified live, 2026-09-10, against this project's real
-    # production warehouse), so there is nothing to silently drift.
-    con.execute("SET TimeZone='UTC'")
-    return con
-
-
-@st.cache_data(ttl=600)
-def get_competitions(_con: ConnectionLike) -> pd.DataFrame:
-    return _con.execute("""
-        select competition_code, competition_name, area_name, emblem, area_flag
-        from dim_competitions
-        order by competition_name
-    """).df()
-
-
-@st.cache_data(ttl=600)
-def get_current_season_id(
-    _con: ConnectionLike, competition_code: str
-) -> int:
-    """The most recent season_id for this competition -- never hardcoded,
-    so this never drifts from pipeline.py's CURRENT_SEASON (see the design
-    doc for why duplicating that constant here would be a real risk).
-    """
-    row = _con.execute(
-        "select max(season_id) from dim_seasons where competition_code = ?",
-        [competition_code],
-    ).fetchone()
-    season_id: int = row[0]
-    return season_id
-
-
-@st.cache_data(ttl=600)
-def get_standings(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> StandingsResult:
-    latest = _con.execute(
-        """
-        select max(snapshot_date) from fct_standings_snapshot
-        where competition_code = ? and season_id = ?
-        """,
-        [competition_code, season_id],
-    ).fetchone()
-    # MAX(...) aggregate always returns exactly one row (possibly NULL), never zero rows,
-    # so fetchone() always succeeds. Unpack directly.
-    latest_snapshot_date = latest[0]
-
-    if latest_snapshot_date is None:
-        return StandingsResult(
-            table=None, message="No standings available yet for this competition."
-        )
-
-    stage_row = _con.execute(
-        """
-        select distinct stage from fct_standings_snapshot
-        where competition_code = ? and season_id = ? and snapshot_date = ?
-        order by stage
-        """,
-        [competition_code, season_id, latest_snapshot_date],
-    ).fetchone()
-    # DISTINCT with no ORDER BY has unspecified row order in DuckDB. ORDER BY stage makes
-    # the result deterministic (same input always gives same output), though alphabetical
-    # ordering does not guarantee "prefer league-table stages" semantics (a knockout stage
-    # named "FINAL" would still lose to "GROUP_STAGE" alphabetically). This scenario
-    # (multiple stages per snapshot_date) has never been observed in real data.
-    # Unlike the aggregate above, SELECT DISTINCT can return zero rows if no snapshots
-    # exist for this (competition, season, date), so the None check is needed here.
-    stage = stage_row[0] if stage_row else None
-
-    if stage not in LEAGUE_TABLE_STAGES:
-        return StandingsResult(
-            table=None,
-            message="No table during the knockout stage -- "
-            "there's no season-long position to rank.",
-        )
-
-    table = _con.execute(
-        """
-        select f.position, t.team_name, t.crest, f.played_games, f.won, f.draw,
-               f.lost, f.goals_for, f.goals_against, f.goal_difference, f.points, f.form,
-               t.team_id
-        from fct_standings_snapshot f
-        join dim_teams t on f.team_id = t.team_id
-        where f.competition_code = ? and f.season_id = ? and f.snapshot_date = ?
-          and f.stage = ? and f.table_type = 'TOTAL'
-        order by f.position
-        """,
-        [competition_code, season_id, latest_snapshot_date, stage],
-    ).df()
-    return StandingsResult(table=table, message=None)
-
-
-@st.cache_data(ttl=600)
-def get_league_fixtures(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    """Every upcoming fixture for a competition/season, no limit -- the
-    League popup's Fixtures tab shows everything, unlike
-    get_upcoming_matches' fixed 10-row window for the old Competition Hub
-    page.
-    """
-    return _con.execute(
-        f"""
-        select f.match_id, f.kickoff_utc, f.kickoff_time_confirmed,
-               ht.team_name as home_team_name, ht.crest as home_crest,
-               aw.team_name as away_team_name, aw.crest as away_crest
-        from fct_matches f
-        left join dim_teams ht on f.home_team_id = ht.team_id
-        left join dim_teams aw on f.away_team_id = aw.team_id
-        where f.competition_code = ? and f.season_id = ?
-          and f.status in ('{"', '".join(_UPCOMING_STATUSES)}')
-        order by f.kickoff_utc asc
-        """,  # nosec B608 -- only the hardcoded _UPCOMING_STATUSES constant
-        # is interpolated; competition_code/season_id are bound via ?.
-        [competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_league_recent_results(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    """Every finished match for a competition/season, no limit -- the
-    League popup's Recent Results tab, mirroring get_league_fixtures'
-    exact shape but for FINISHED/AWARDED matches with scores instead of
-    upcoming ones.
-    """
-    return _con.execute(
-        f"""
-        select f.match_id, f.kickoff_utc, f.kickoff_time_confirmed,
-               ht.team_name as home_team_name, ht.crest as home_crest,
-               aw.team_name as away_team_name, aw.crest as away_crest,
-               f.full_time_home, f.full_time_away
-        from fct_matches f
-        left join dim_teams ht on f.home_team_id = ht.team_id
-        left join dim_teams aw on f.away_team_id = aw.team_id
-        where f.competition_code = ? and f.season_id = ?
-          and f.status in ('{"', '".join(_FINISHED_STATUSES)}')
-        order by f.kickoff_utc desc
-        """,  # nosec B608 -- only the hardcoded _FINISHED_STATUSES constant
-        # is interpolated; competition_code/season_id are bound via ?.
-        [competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_top_scorers(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    """fct_scorers already carries player_name/team_name denormalized on
-    the fact row (the source API embeds scorer names directly, unlike
-    matches/standings, which only carry team_id and need dim_teams) -- no
-    join needed for those. A join to dim_teams is needed now, though,
-    for the one column fct_scorers doesn't carry: crest. team_name itself
-    still comes from fct_scorers directly, not from the join.
-
-    rank is computed with rank(), not row_number() and not dense_rank():
-    two players tied on every sort key must share a rank, with the next
-    distinct row's rank skipping by the count of tied rows ahead of it
-    (1, 2, 2, 4) -- dense_rank() would give 1, 2, 2, 3 instead, silently
-    compressing the tie away, and row_number() would split ties
-    arbitrarily by whatever order the query happens to return rows in.
-    Verified empirically against DuckDB, not assumed from the function
-    name.
-
-    May legitimately return an empty DataFrame -- a competition whose
-    current season has no counted scorer rows yet is a real state, not an
-    error.
-
-    assists/penalties coalesce NULL to 0 -- confirmed via a live
-    football-data.org API call (not guessed) that the source JSON sends
-    an explicit null when a player has no assists/penalties, not an
-    omitted field and not an explicit 0. Rendering that as a blank cell
-    reads as "unknown"; it means zero. This also removes every null this
-    query could see feeding rank()'s ORDER BY (goals and played_matches
-    are never null in the real data), so no NULLS LAST/FIRST handling is
-    needed here at all -- a prior fix relied on NULLS LAST inside the
-    window's own ORDER BY, which BigQuery's documented window-function
-    grammar does not appear to support (only top-level ORDER BY does);
-    coalescing removes the need for it entirely rather than leaving an
-    unverified, possibly-nonportable clause in place unused.
-
-    The outer ORDER BY breaks ties on player_name for a deterministic
-    display order -- DuckDB does not guarantee scan order is stable
-    across reruns, and two players sharing a rank would otherwise render
-    in an arbitrary order (same class of concern get_standings' own
-    ORDER BY comment already flags).
-    """
-    return _con.execute(
-        """
-        select
-            rank() over (
-                order by s.goals desc, coalesce(s.assists, 0) desc, s.played_matches asc
-            ) as rank,
-            s.player_name, s.team_name, t.crest, s.goals,
-            coalesce(s.assists, 0) as assists,
-            s.played_matches,
-            coalesce(s.penalties, 0) as penalties
-        from fct_scorers s
-        left join dim_teams t on s.team_id = t.team_id
-        where s.competition_code = ? and s.season_id = ?
-        order by rank, s.player_name
-        """,
-        [competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_players_directory(_con: ConnectionLike) -> pd.DataFrame:
-    """Every player in dim_players, with team display fields -- the
-    Players page directory's data source. Derived players (squad-listing
-    misses, is_derived=true) are included with null bio fields rather
-    than filtered out; they're still real players who existed in the
-    backfilled data.
-    """
-    return _con.execute("""
-        select p.player_id, p.player_name, p.position, p.nationality,
-               t.team_name, t.crest
-        from dim_players p
-        left join dim_teams t on p.team_id = t.team_id
-        order by p.player_name
-    """).df()
-
-
-@st.cache_data(ttl=600)
-def get_player_bio(_con: ConnectionLike, player_id: int) -> pd.Series | None:
-    """One player's bio fields plus their current team's display fields.
-    None if player_id doesn't exist in dim_players at all -- mirrors
-    get_match_detail's None-for-unknown-id convention.
-    """
-    df = _con.execute(
-        """
-        select p.player_name, p.position, p.nationality, p.date_of_birth,
-               t.team_name, t.crest
-        from dim_players p
-        left join dim_teams t on p.team_id = t.team_id
-        where p.player_id = ?
-        """,
-        [player_id],
-    ).df()
-    if df.empty:
-        return None
-    return df.iloc[0]
-
-
-@st.cache_data(ttl=600)
-def get_player_scoring_history(_con: ConnectionLike, player_id: int) -> pd.DataFrame:
-    """Every competition/season this player has a counted fct_scorers row
-    for, most recent season first. May legitimately be empty -- most
-    squad players (defenders, goalkeepers) never appear in fct_scorers at
-    all, since it only covers goal/assist contributors. Ordered by
-    start_date, not season_id, since season_id is an opaque API-assigned
-    integer with no guaranteed chronological ordering across competitions
-    (the same reasoning get_competition_seasons' own ordering already
-    relies on start_date/end_date for a human-readable label).
-
-    assists/penalties coalesce NULL to 0 -- same fix, same reasoning, as
-    get_top_scorers: confirmed via a live football-data.org API call that
-    the source JSON sends an explicit null for zero assists/penalties, not
-    an omitted field and not an explicit 0. Left uncoalesced here until a
-    real player's row (Ferran Torres, 8/8 fct_scorers rows with null
-    penalties, several with null assists) rendered literal "None" text in
-    the Players page's Scoring History table -- st.dataframe shows
-    NaN/None as visible text, not a blank cell, so this has to be fixed at
-    the query, not the display.
-    """
-    return _con.execute(
-        """
-        select c.competition_name, s.start_date, s.end_date,
-               f.goals, coalesce(f.assists, 0) as assists, f.played_matches,
-               coalesce(f.penalties, 0) as penalties
-        from fct_scorers f
-        left join dim_competitions c on f.competition_code = c.competition_code
-        left join dim_seasons s on f.season_id = s.season_id
-        where f.player_id = ?
-        order by s.start_date desc
-        """,
-        [player_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_current_teams(_con: ConnectionLike) -> pd.DataFrame:
-    """Every team with at least one match, home or away, in ANY competition's
-    current season. UNION (not UNION ALL) dedupes a team appearing in both
-    positions across different matches.
-    """
-    return _con.execute("""
-        select team_id, team_name from (
-            select f.home_team_id as team_id, t.team_name
-            from fct_matches f
-            join dim_teams t on f.home_team_id = t.team_id
-            where f.season_id = (
-                select max(season_id) from dim_seasons s2
-                where s2.competition_code = f.competition_code
-            )
-            union distinct
-            select f.away_team_id as team_id, t.team_name
-            from fct_matches f
-            join dim_teams t on f.away_team_id = t.team_id
-            where f.season_id = (
-                select max(season_id) from dim_seasons s2
-                where s2.competition_code = f.competition_code
-            )
-        ) combined
-        order by team_name
-    """).df()
-
-
-@st.cache_data(ttl=600)
-def get_team_competitions(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
-    """Every competition this team has a current-season match in.
-
-    DISTINCT is load-bearing here, unlike get_current_teams -- a team can
-    have several matches in the same competition/season, and without it
-    this would return one row per match, not one per competition.
-    """
-    return _con.execute(
-        """
-        select distinct f.competition_code, c.competition_name, f.season_id
-        from fct_matches f
-        join dim_competitions c on f.competition_code = c.competition_code
-        where (f.home_team_id = ? or f.away_team_id = ?)
-          and f.season_id = (
-              select max(season_id) from dim_seasons s2
-              where s2.competition_code = f.competition_code
-          )
-        order by c.competition_name
-        """,
-        [team_id, team_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_team_position_history(
-    _con: ConnectionLike, team_id: int, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    """May legitimately be empty -- the reconstruction has nothing to chart
-    yet (not started, or entirely in a non-league-table stage). The page
-    must handle that with a message, not an empty or broken chart.
-    """
-    return _con.execute(
-        """
-        select matchday, position
-        from mart_standings_over_time
-        where team_id = ? and competition_code = ? and season_id = ?
-        order by matchday asc
-        """,
-        [team_id, competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_head_to_head(
-    _con: ConnectionLike, team_1_id: int, team_2_id: int
-) -> pd.Series | None:
-    """mart_head_to_head stores one row per unordered pair, keyed
-    team_a_id = least(...), team_b_id = greatest(...) (CLAUDE.md's
-    pairwise-model convention) -- an ordering the caller's two team ids
-    have no relationship to. Looks the row up via least/greatest, then
-    remaps team_a_*/team_b_* back onto team_1_*/team_2_* in whichever
-    order the caller actually passed them in, so the result always
-    reflects "team_1's" record regardless of team_1_id's numeric value
-    relative to team_2_id.
-
-    None when the pair has no row at all -- two teams that have never
-    played each other is a real state, not an error.
-    """
-    df = _con.execute(
-        """
-        select team_a_id, team_a_wins, team_b_wins, draws,
-               matches_played, team_a_goals, team_b_goals
-        from mart_head_to_head
-        where team_a_id = least(?, ?) and team_b_id = greatest(?, ?)
-        """,
-        [team_1_id, team_2_id, team_1_id, team_2_id],
-    ).df()
-    if df.empty:
-        return None
-    row = df.iloc[0]
-    if team_1_id == row["team_a_id"]:
-        team_1_wins, team_2_wins = row["team_a_wins"], row["team_b_wins"]
-        team_1_goals, team_2_goals = row["team_a_goals"], row["team_b_goals"]
-    else:
-        team_1_wins, team_2_wins = row["team_b_wins"], row["team_a_wins"]
-        team_1_goals, team_2_goals = row["team_b_goals"], row["team_a_goals"]
-    return pd.Series(
-        {
-            "team_1_wins": team_1_wins,
-            "team_2_wins": team_2_wins,
-            "draws": row["draws"],
-            "matches_played": row["matches_played"],
-            "team_1_goals": team_1_goals,
-            "team_2_goals": team_2_goals,
-        }
-    )
-
-
-@st.cache_data(ttl=600)
-def get_head_to_head_matches(
-    _con: ConnectionLike, team_1_id: int, team_2_id: int
-) -> pd.DataFrame:
-    """Every FINISHED/AWARDED match between the pair, either team home,
-    newest first, no cap. Same status filter mart_head_to_head.sql uses,
-    so this list and that aggregate always agree on which matches count
-    -- a SCHEDULED fixture between the two showing up here (or an
-    AWARDED one missing from it) would make the two panels on the page
-    disagree with each other.
-
-    May legitimately be empty -- reachable only when get_head_to_head
-    also returns None, since both read the same underlying match set.
-    """
-    return _con.execute(
-        f"""
-        select f.kickoff_utc, f.kickoff_time_confirmed, c.competition_name,
-               ht.team_name as home_team_name, aw.team_name as away_team_name,
-               f.full_time_home, f.full_time_away
-        from fct_matches f
-        join dim_teams ht on f.home_team_id = ht.team_id
-        join dim_teams aw on f.away_team_id = aw.team_id
-        join dim_competitions c on f.competition_code = c.competition_code
-        where f.status in ('{"', '".join(_FINISHED_STATUSES)}')
-          and ((f.home_team_id = ? and f.away_team_id = ?)
-            or (f.home_team_id = ? and f.away_team_id = ?))
-        order by f.kickoff_utc desc
-        """,  # nosec B608 -- only the hardcoded _FINISHED_STATUSES constant is
-        # interpolated; the real user-supplied values (team_1_id, team_2_id)
-        # are bound via ? placeholders below.
-        [team_1_id, team_2_id, team_2_id, team_1_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_cross_league_stats(_con: ConnectionLike) -> pd.DataFrame:
-    """One row per tracked competition (dim_competitions), always -- a
-    competition with no decided matches in its current season (e.g. UEFA
-    Champions League before its group stage starts) still appears, with
-    null decided_matches/avg_goals_per_match/avg_goal_margin/home_win_rate,
-    via LEFT JOIN rather than silently vanishing from the comparison.
-
-    This differs from every other "no data" case in this module
-    (get_team_position_history returns an empty DataFrame) -- here
-    one query covers every competition at once, so absence is
-    expressed per-row instead of for the whole result.
-    """
-    return _con.execute(
-        """
-        with current_seasons as (
-            select competition_code, max(season_id) as season_id
-            from dim_seasons
-            group by competition_code
-        )
-        select
-            c.competition_name,
-            m.decided_matches,
-            m.avg_goals_per_match,
-            m.avg_goal_margin,
-            m.home_win_rate
-        from dim_competitions c
-        left join current_seasons cs on cs.competition_code = c.competition_code
-        left join mart_cross_league_stats m
-          on m.competition_code = c.competition_code
-         and m.season_id = cs.season_id
-        order by c.competition_name
-        """
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_competition_seasons(
-    _con: ConnectionLike, competition_code: str
-) -> pd.DataFrame:
-    """Every backfilled season for one competition, most recent first --
-    the season picker's source. The page derives a human-readable
-    "2024/25" label from start_date/end_date; season_id itself is an
-    opaque API-assigned integer with no calendar meaning to a reader.
-    """
-    return _con.execute(
-        """
-        select season_id, start_date, end_date
-        from dim_seasons
-        where competition_code = ?
-        order by season_id desc
-        """,
-        [competition_code],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_reconstructed_final_standings(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    """A past season's final table, reconstructed from match results via
-    mart_standings_over_time -- fct_standings_snapshot has zero rows for
-    any past season (the standings endpoint only ever returns a
-    competition's CURRENT table; there was never a historical backfill
-    for it), so this reconstruction is the only source available for a
-    completed season. Same caveat CLAUDE.md already documents for this
-    mart: can drift from the real final table on tiebreakers it has no
-    way to know about (head-to-head record, disciplinary points) and on
-    points deductions.
-
-    group_name is nullable and carried through unchanged -- the old
-    Champions League group-stage format (2023/24 in this backfill) has
-    real distinct groups, so more than one team can legitimately show
-    position = 1 (one per group). Every other season/competition in
-    today's backfill has group_name null throughout. The correlated
-    subquery takes each (competition, season, group)'s own final
-    matchday, matching the mart's own position window (already
-    partitioned by group_name) -- not a global max across groups, which
-    would silently pick one group's last matchday for every group.
-
-    May legitimately be empty -- a season with no mart_standings_over_time
-    rows at all (not reachable for any season in today's backfill, but
-    not guaranteed to stay that way) gets a message, not a broken table.
-    """
-    return _con.execute(
-        """
-        select
-            m.group_name,
-            m.position,
-            t.team_name,
-            m.cumulative_points as points,
-            m.cumulative_goal_difference as goal_difference,
-            m.cumulative_goals_for as goals_for
-        from mart_standings_over_time m
-        join dim_teams t on m.team_id = t.team_id
-        where m.competition_code = ? and m.season_id = ?
-          and m.matchday = (
-              select max(m2.matchday)
-              from mart_standings_over_time m2
-              where m2.competition_code = m.competition_code
-                and m2.season_id = m.season_id
-                and m2.group_name is not distinct from m.group_name
-          )
-        order by m.group_name, m.position
-        """,
-        [competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_streaks(_con: ConnectionLike, competition_code: str) -> pd.DataFrame:
-    """mart_streaks is grained at (team_id, competition_code) with no
-    season_id -- deliberately, not an oversight (see the design doc):
-    current_win_streak/current_unbeaten_streak must span a season
-    boundary (a real streak doesn't reset when the calendar rolls over),
-    and longest_win_streak/longest_unbeaten_streak are meant to be
-    all-time records across the whole backfilled window, the same
-    "all-time, not season-scoped" choice already made for
-    mart_head_to_head. All four stat columns pass through unchanged --
-    no recomputation, no filtering to only teams currently on a streak.
-
-    May legitimately be empty -- a competition with no decided matches
-    in mart_streaks (not reachable for any competition in today's
-    backfill) gets a message, not a broken table.
-    """
-    return _con.execute(
-        """
-        select
-            s.team_id,
-            t.team_name,
-            s.current_win_streak,
-            s.current_unbeaten_streak,
-            s.longest_win_streak,
-            s.longest_unbeaten_streak
-        from mart_streaks s
-        join dim_teams t on s.team_id = t.team_id
-        where s.competition_code = ?
-        """,
-        [competition_code],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_teams_in_season(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    """Every team with at least one match, home or away, in this specific
-    competition/season -- the same home+away UNION get_current_teams
-    already uses, scoped to one (competition, season) pair instead of
-    "any competition's current season". Built to filter get_streaks'
-    "Current Streaks" panel down to teams actually still in the
-    competition -- mart_streaks itself has no notion of "still
-    competing", so without this filter a team that left the
-    competition years ago (relegated, or eliminated from a prior
-    Champions League edition) renders indistinguishably from a
-    genuinely active team's current streak.
-    """
-    return _con.execute(
-        """
-        select team_id from (
-            select home_team_id as team_id
-            from fct_matches
-            where competition_code = ? and season_id = ?
-            union distinct
-            select away_team_id as team_id
-            from fct_matches
-            where competition_code = ? and season_id = ?
-        ) combined
-        """,
-        [competition_code, season_id, competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_teams_for_league(
-    _con: ConnectionLike, competition_code: str, season_id: int
-) -> pd.DataFrame:
-    """Every team with at least one match, home or away, in this
-    competition/season, with display fields -- the Teams page grid's data
-    source. Same home+away union shape as get_teams_in_season, but joined
-    to dim_teams for team_name/crest since this is for direct display, not
-    for filtering another mart's rows.
-    """
-    return _con.execute(
-        """
-        select t.team_id, t.team_name, t.crest
-        from (
-            select home_team_id as team_id
-            from fct_matches
-            where competition_code = ? and season_id = ?
-            union distinct
-            select away_team_id as team_id
-            from fct_matches
-            where competition_code = ? and season_id = ?
-        ) ids
-        left join dim_teams t on ids.team_id = t.team_id
-        order by t.team_name
-        """,
-        [competition_code, season_id, competition_code, season_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_team_recent_form(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
-    """The 10 most recent finished matches across every competition this
-    team plays in -- a club's last 10 routinely spans its domestic league
-    and a continental competition, so this deliberately does not scope to
-    one competition_code the way get_recent_matches does. Backed by
-    fct_team_matches, which already carries this team's own goals_for/
-    goals_against/result regardless of whether it played home or away.
-
-    Returns kickoff_utc/kickoff_time_confirmed (joined in from fct_matches
-    on match_id), not fct_team_matches' own bare kickoff_date_utc -- the
-    mart only carries a DATE, with no time and no confirmed/TBD flag, so
-    the page has nothing to feed app.formatting.format_kickoff without this
-    join. Ordering by the real timestamp instead of the bare date is also
-    what gives two same-day matches a deterministic order; a DATE alone
-    has no tiebreak.
-    """
-    return _con.execute(
-        """
-        select m.kickoff_utc, m.kickoff_time_confirmed, t.team_name as opponent_team_name,
-               t.crest as opponent_crest, c.competition_name,
-               f.goals_for, f.goals_against, f.result
-        from fct_team_matches f
-        left join fct_matches m on f.match_id = m.match_id
-        left join dim_teams t on f.opponent_team_id = t.team_id
-        left join dim_competitions c on f.competition_code = c.competition_code
-        where f.team_id = ? and f.status in ('FINISHED', 'AWARDED')
-        order by m.kickoff_utc desc
-        limit 10
-        """,
-        [team_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_team_upcoming(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
-    """The next 10 scheduled matches across every competition, soonest
-    first -- same cross-competition scope as get_team_recent_form.
-    goals_for/goals_against/result are still selected (fct_team_matches
-    carries them as null for an unplayed match) so this shares that
-    query's exact column shape for a single shared display helper in the
-    page layer.
-
-    Returns kickoff_utc/kickoff_time_confirmed (joined in from fct_matches
-    on match_id), not fct_team_matches' own bare kickoff_date_utc -- same
-    reasoning as get_team_recent_form's identical join, and again gives a
-    deterministic tiebreak for two matches scheduled on the same date.
-    """
-    return _con.execute(
-        """
-        select m.kickoff_utc, m.kickoff_time_confirmed, t.team_name as opponent_team_name,
-               t.crest as opponent_crest, c.competition_name,
-               f.goals_for, f.goals_against, f.result
-        from fct_team_matches f
-        left join fct_matches m on f.match_id = m.match_id
-        left join dim_teams t on f.opponent_team_id = t.team_id
-        left join dim_competitions c on f.competition_code = c.competition_code
-        where f.team_id = ? and f.status in ('SCHEDULED', 'TIMED')
-        order by m.kickoff_utc asc
-        limit 10
-        """,
-        [team_id],
-    ).df()
-
-
-@st.cache_data(ttl=600)
-def get_match_detail(
-    _con: ConnectionLike, match_id: int
-) -> pd.Series | None:
-    """One match's full detail: teams, venue (nullable -- a needs_review
-    venue has no coordinates), weather (nullable -- no row until ingested,
-    or kickoff not yet confirmed). None if match_id doesn't exist at all.
-    """
-    df = _con.execute(
-        """
-        select f.match_id, f.competition_code, f.season_id, f.matchday, f.stage,
-               f.kickoff_utc, f.kickoff_time_confirmed, f.status,
-               f.full_time_home, f.full_time_away,
-               ht.team_name as home_team_name, aw.team_name as away_team_name,
-               v.canonical_venue_name, v.display_name as venue_display_name,
-               v.capacity, v.latitude, v.longitude, v.needs_review as venue_needs_review,
-               w.temperature_2m, w.precipitation, w.wind_speed_10m,
-               w.data_type as weather_data_type
-        from fct_matches f
-        join dim_teams ht on f.home_team_id = ht.team_id
-        join dim_teams aw on f.away_team_id = aw.team_id
-        left join dim_venues v on f.venue_key = v.venue_key
-        -- On BigQuery, fct_match_weather is a manually-created, permanently-empty
-        -- stand-in (not managed by dbt) until weather ingestion gains real BigQuery
-        -- support -- rebuilding the BigQuery dataset from dbt alone will not
-        -- recreate this table.
-        left join fct_match_weather w on f.match_id = w.match_id
-        where f.match_id = ?
-        """,
-        [match_id],
-    ).df()
-    if df.empty:
-        return None
-    return df.iloc[0]
+from warehouse.queries import (
+    DEFAULT_DB_PATH,
+    LEAGUE_TABLE_STAGES,
+    BigQueryConnection,
+    ConnectionLike,
+    CursorLike,
+    StandingsResult,
+)
+from warehouse.queries import get_competition_seasons as _get_competition_seasons
+from warehouse.queries import get_competitions as _get_competitions
+from warehouse.queries import get_connection as _get_connection
+from warehouse.queries import get_cross_league_stats as _get_cross_league_stats
+from warehouse.queries import get_current_season_id as _get_current_season_id
+from warehouse.queries import get_current_teams as _get_current_teams
+from warehouse.queries import get_head_to_head as _get_head_to_head
+from warehouse.queries import get_head_to_head_matches as _get_head_to_head_matches
+from warehouse.queries import get_league_fixtures as _get_league_fixtures
+from warehouse.queries import get_league_recent_results as _get_league_recent_results
+from warehouse.queries import get_match_detail as _get_match_detail
+from warehouse.queries import get_player_bio as _get_player_bio
+from warehouse.queries import get_player_scoring_history as _get_player_scoring_history
+from warehouse.queries import get_players_directory as _get_players_directory
+from warehouse.queries import (
+    get_reconstructed_final_standings as _get_reconstructed_final_standings,
+)
+from warehouse.queries import get_standings as _get_standings
+from warehouse.queries import get_streaks as _get_streaks
+from warehouse.queries import get_team_competitions as _get_team_competitions
+from warehouse.queries import get_team_position_history as _get_team_position_history
+from warehouse.queries import get_team_recent_form as _get_team_recent_form
+from warehouse.queries import get_team_upcoming as _get_team_upcoming
+from warehouse.queries import get_teams_for_league as _get_teams_for_league
+from warehouse.queries import get_teams_in_season as _get_teams_in_season
+from warehouse.queries import get_top_scorers as _get_top_scorers
+
+__all__ = [
+    "BigQueryConnection",
+    "ConnectionLike",
+    "CursorLike",
+    "DEFAULT_DB_PATH",
+    "LEAGUE_TABLE_STAGES",
+    "StandingsResult",
+    "get_connection",
+    "get_competition_seasons",
+    "get_competitions",
+    "get_cross_league_stats",
+    "get_current_season_id",
+    "get_current_teams",
+    "get_head_to_head",
+    "get_head_to_head_matches",
+    "get_league_fixtures",
+    "get_league_recent_results",
+    "get_match_detail",
+    "get_player_bio",
+    "get_player_scoring_history",
+    "get_players_directory",
+    "get_reconstructed_final_standings",
+    "get_standings",
+    "get_streaks",
+    "get_team_competitions",
+    "get_team_position_history",
+    "get_team_recent_form",
+    "get_team_upcoming",
+    "get_teams_for_league",
+    "get_teams_in_season",
+    "get_top_scorers",
+]
+
+get_connection = st.cache_resource(_get_connection)
+get_competition_seasons = st.cache_data(ttl=600)(_get_competition_seasons)
+get_competitions = st.cache_data(ttl=600)(_get_competitions)
+get_cross_league_stats = st.cache_data(ttl=600)(_get_cross_league_stats)
+get_current_season_id = st.cache_data(ttl=600)(_get_current_season_id)
+get_current_teams = st.cache_data(ttl=600)(_get_current_teams)
+get_head_to_head = st.cache_data(ttl=600)(_get_head_to_head)
+get_head_to_head_matches = st.cache_data(ttl=600)(_get_head_to_head_matches)
+get_league_fixtures = st.cache_data(ttl=600)(_get_league_fixtures)
+get_league_recent_results = st.cache_data(ttl=600)(_get_league_recent_results)
+get_match_detail = st.cache_data(ttl=600)(_get_match_detail)
+get_player_bio = st.cache_data(ttl=600)(_get_player_bio)
+get_player_scoring_history = st.cache_data(ttl=600)(_get_player_scoring_history)
+get_players_directory = st.cache_data(ttl=600)(_get_players_directory)
+get_reconstructed_final_standings = st.cache_data(ttl=600)(_get_reconstructed_final_standings)
+get_standings = st.cache_data(ttl=600)(_get_standings)
+get_streaks = st.cache_data(ttl=600)(_get_streaks)
+get_team_competitions = st.cache_data(ttl=600)(_get_team_competitions)
+get_team_position_history = st.cache_data(ttl=600)(_get_team_position_history)
+get_team_recent_form = st.cache_data(ttl=600)(_get_team_recent_form)
+get_team_upcoming = st.cache_data(ttl=600)(_get_team_upcoming)
+get_teams_for_league = st.cache_data(ttl=600)(_get_teams_for_league)
+get_teams_in_season = st.cache_data(ttl=600)(_get_teams_in_season)
+get_top_scorers = st.cache_data(ttl=600)(_get_top_scorers)

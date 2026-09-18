@@ -1,4 +1,4 @@
-"""Tests for app/queries.py's logic-bearing functions.
+"""Tests for warehouse/queries.py's logic-bearing functions.
 
 Most of queries.py is a straight SQL passthrough with nothing to unit test
 beyond "does it run" -- that's covered by manually running the app (see
@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from app.queries import (
+from warehouse.queries import (
     _app_destination,
     get_competition_seasons,
     get_competitions,
@@ -107,7 +107,7 @@ class _FakeBigQueryClient:
 
 
 def test_bigquery_connection_execute_with_no_params_passes_sql_through() -> None:
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     job = _FakeQueryJob(df=pd.DataFrame({"x": [1]}), rows=[])
     client = _FakeBigQueryClient(job)
@@ -122,7 +122,7 @@ def test_bigquery_connection_execute_with_no_params_passes_sql_through() -> None
 def test_bigquery_connection_execute_translates_positional_params() -> None:
     from google.cloud import bigquery
 
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
     client = _FakeBigQueryClient(job)
@@ -149,7 +149,7 @@ def test_bigquery_connection_execute_translates_positional_params() -> None:
 
 
 def test_bigquery_connection_df_calls_to_dataframe() -> None:
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     expected = pd.DataFrame({"x": [1, 2]})
     job = _FakeQueryJob(df=expected, rows=[])
@@ -161,7 +161,7 @@ def test_bigquery_connection_df_calls_to_dataframe() -> None:
 
 
 def test_bigquery_connection_fetchone_returns_first_row_as_tuple() -> None:
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     job = _FakeQueryJob(df=pd.DataFrame(), rows=[_FakeRow((2502,))])
     conn = BigQueryConnection(_FakeBigQueryClient(job))
@@ -172,7 +172,7 @@ def test_bigquery_connection_fetchone_returns_first_row_as_tuple() -> None:
 
 
 def test_bigquery_connection_fetchone_returns_none_when_no_rows() -> None:
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
     conn = BigQueryConnection(_FakeBigQueryClient(job))
@@ -185,7 +185,7 @@ def test_bigquery_connection_fetchone_returns_none_when_no_rows() -> None:
 def test_bigquery_connection_infers_date_param_type() -> None:
     from google.cloud import bigquery
 
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
     client = _FakeBigQueryClient(job)
@@ -208,7 +208,7 @@ def test_bigquery_connection_coerces_numpy_int_to_plain_int() -> None:
     directly, so BigQueryConnection must convert it to a native Python
     int, not just infer the right type STRING for it.
     """
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
     client = _FakeBigQueryClient(job)
@@ -224,7 +224,7 @@ def test_bigquery_connection_coerces_numpy_int_to_plain_int() -> None:
 
 
 def test_bigquery_connection_infers_bool_param_type() -> None:
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
     client = _FakeBigQueryClient(job)
@@ -238,7 +238,7 @@ def test_bigquery_connection_infers_bool_param_type() -> None:
 
 
 def test_bigquery_connection_raises_on_datetime_param() -> None:
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
     client = _FakeBigQueryClient(job)
@@ -251,7 +251,7 @@ def test_bigquery_connection_raises_on_datetime_param() -> None:
 
 
 def test_bigquery_connection_raises_on_an_uninferable_param_type() -> None:
-    from app.queries import BigQueryConnection
+    from warehouse.queries import BigQueryConnection
 
     job = _FakeQueryJob(df=pd.DataFrame(), rows=[])
     client = _FakeBigQueryClient(job)
@@ -276,7 +276,7 @@ def test_get_connection_caps_bigquery_bytes_billed(monkeypatch: pytest.MonkeyPat
         captured_kwargs.update(kwargs)
         return object()
 
-    monkeypatch.setattr("app.queries.bigquery.Client", fake_client)
+    monkeypatch.setattr("warehouse.queries.bigquery.Client", fake_client)
 
     from app.queries import get_connection
 

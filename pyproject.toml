@@ -50,6 +50,7 @@ dev = [
     "bandit>=1.7",
     "responses>=0.25",
     "types-requests",
+    "pandas-stubs",
 ]
 
 [build-system]
@@ -68,7 +69,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["football_pipeline"]
+files = ["football_pipeline", "warehouse"]
 strict = true
 
 [tool.pytest.ini_options]

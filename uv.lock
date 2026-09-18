@@ -786,6 +786,7 @@ app = [
 dev = [
     { name = "bandit" },
     { name = "mypy" },
+    { name = "pandas-stubs" },
     { name = "pytest" },
     { name = "responses" },
     { name = "ruff" },
@@ -817,6 +818,7 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.11" },
     { name = "numpy", marker = "extra == 'app'", specifier = ">=2.5.3" },
     { name = "pandas", marker = "extra == 'app'", specifier = ">=3.0.5" },
+    { name = "pandas-stubs", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "requests", marker = "extra == 'pipeline'", specifier = ">=2.32" },
     { name = "responses", marker = "extra == 'dev'", specifier = ">=0.25" },
@@ -1844,6 +1846,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f3/7b/51b17494ef810bc5fb73c99b205480cb264093217bbc0f6a3fd0836e0236/pandas_gbq-0.35.2.tar.gz", hash = "sha256:3613f203e0ad9cbe38709fcb9b4c2c9af1fdb46bed333219b34a639142850806", size = 81886, upload-time = "2026-08-25T19:19:14.126Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/db/f3/8a6d47e44743053eaba0a56c17e6e7660fc913252ebf3b13fc9ea5c2a065/pandas_gbq-0.35.2-py3-none-any.whl", hash = "sha256:b74187ec91b25ca4818b14343f7a765a7ee8f7b3ed7e8d1e428e9e8a2094b0e8", size = 51926, upload-time = "2026-08-25T19:18:10.852Z" },
+]
+
+[[package]]
+name = "pandas-stubs"
+version = "3.0.5.260914"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/c1/93/8948ae6c1e1e3d6833596fd266f7be2d27c1451b8be094975ad42c5e842e/pandas_stubs-3.0.5.260914.tar.gz", hash = "sha256:3f6fc1f147f68fd89c007105e7c94a948acb4ecd7eb20dc1c02e153c4ed5c250", size = 117622, upload-time = "2026-09-14T16:42:35.065Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/9a/cb/5ad79e02a556cc23fed5816de0109fa8af660c66cfa5f4af74c3e8d4cd26/pandas_stubs-3.0.5.260914-py3-none-any.whl", hash = "sha256:39a1300c5c5c55fdf609e3476805decce5d5015539a4dcb683449f8feaeee2fb", size = 177344, upload-time = "2026-09-14T16:42:33.771Z" },
 ]
 
 [[package]]
