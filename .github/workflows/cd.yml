@@ -1,0 +1,58 @@
+name: CD
+
+# NOTE: this filters on the *workflow's* `name:` field, "CI" (see
+# .github/workflows/ci.yml) -- if that name is ever changed, this filter
+# silently stops matching and CD goes quiet with no error anywhere.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch: {}   # manual first-run proof that WIF auth works
+
+jobs:
+  build-and-push-app-image:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write   # required for WIF -- not on the default token
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # workflow_run defaults to checking out main's current tip, not
+          # the commit CI actually ran against -- and head_sha doesn't
+          # exist at all on a workflow_dispatch run, hence the fallback.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/201121489097/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: ci-deployer@football-tracker-508022.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      - id: tag
+        run: |
+          sha="${{ github.event.workflow_run.head_sha || github.sha }}"
+          echo "sha=${sha::7}" >> "$GITHUB_OUTPUT"
+
+      - run: |
+          docker build -f Dockerfile.app \
+            -t us-central1-docker.pkg.dev/football-tracker-508022/football-tracker/app:${{ steps.tag.outputs.sha }} \
+            .
+          docker push us-central1-docker.pkg.dev/football-tracker-508022/football-tracker/app:${{ steps.tag.outputs.sha }}
+
+      - run: |
+          {
+            echo "### Image pushed: \`${{ steps.tag.outputs.sha }}\`"
+            echo '```'
+            echo "cd terraform/gcp && terraform apply -var-file=terraform.tfvars -var app_image_tag=${{ steps.tag.outputs.sha }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
