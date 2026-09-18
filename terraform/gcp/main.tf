@@ -42,6 +42,12 @@ resource "google_project_service" "iam" {
   disable_on_destroy = false
 }
 
+resource "google_project_service" "iamcredentials" {
+  project            = var.project_id
+  service            = "iamcredentials.googleapis.com"
+  disable_on_destroy = false
+}
+
 resource "google_artifact_registry_repository" "pipeline" {
   project       = var.project_id
   location      = var.region
