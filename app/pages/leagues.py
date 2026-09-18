@@ -277,15 +277,18 @@ def show_league_dialog(competition_code: str, competition_name: str, emblem: str
 cols = st.columns(3)
 for i, row in enumerate(competitions.itertuples()):
     with cols[i % 3], st.container(border=True):
-        if pd.notna(row.emblem):
-            st.image(row.emblem, width=48)
-        st.markdown(f"**{row.competition_name}**")
-        flag_col, name_col = st.columns([1, 4])
-        with flag_col:
-            if pd.notna(row.area_flag):
-                st.image(row.area_flag, width=20)
-        with name_col:
-            st.caption(row.area_name)
+        crest_col, text_col = st.columns([1, 3], vertical_alignment="center")
+        with crest_col:
+            if pd.notna(row.emblem):
+                st.image(row.emblem, width=48)
+        with text_col:
+            st.markdown(f"**{row.competition_name}**")
+            flag_col, name_col = st.columns([1, 4])
+            with flag_col:
+                if pd.notna(row.area_flag):
+                    st.image(row.area_flag, width=20)
+            with name_col:
+                st.caption(row.area_name)
         if st.button("View", key=f"view_{row.competition_code}"):
             show_league_dialog(row.competition_code, row.competition_name, row.emblem)
 

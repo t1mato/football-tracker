@@ -209,8 +209,11 @@ teams = get_teams_for_league(con, selected_code, season_id)
 cols = st.columns(3)
 for i, row in enumerate(teams.itertuples()):
     with cols[i % 3], st.container(border=True):
-        if pd.notna(row.crest):
-            st.image(row.crest, width=48)
-        st.markdown(f"**{row.team_name}**")
+        crest_col, text_col = st.columns([1, 3], vertical_alignment="center")
+        with crest_col:
+            if pd.notna(row.crest):
+                st.image(row.crest, width=48)
+        with text_col:
+            st.markdown(f"**{row.team_name}**")
         if st.button("View", key=f"view_team_{row.team_id}"):
             show_team_dialog(row.team_id, row.team_name, row.crest, selected_code, season_id)
