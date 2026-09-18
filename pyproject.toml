@@ -43,6 +43,12 @@ app = [
     # dlt[bigquery] already resolves transitively for the pipeline extra.
     "db-dtypes>=1.7.1",
 ]
+backend = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.32",
+    # Required for FastAPI's TestClient (httpx-based since FastAPI 0.111).
+    "httpx>=0.27",
+]
 dev = [
     "pytest>=8.0",
     "ruff>=0.6",
@@ -69,7 +75,7 @@ select = ["E", "F", "I", "UP", "B", "SIM"]
 
 [tool.mypy]
 python_version = "3.12"
-files = ["football_pipeline", "warehouse"]
+files = ["football_pipeline", "warehouse", "backend"]
 strict = true
 
 [tool.pytest.ini_options]
