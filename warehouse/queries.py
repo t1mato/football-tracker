@@ -37,6 +37,8 @@ class ConnectionLike(Protocol):
         self, sql: str, params: list[object] | None = None
     ) -> CursorLike: ...
 
+    def cursor(self) -> "ConnectionLike": ...
+
 
 class _BigQueryCursor:
     def __init__(self, job: "bigquery.QueryJob") -> None:
@@ -51,11 +53,10 @@ class _BigQueryCursor:
 
 
 class BigQueryConnection:
-    """Adapts google.cloud.bigquery.Client to the narrow slice of DuckDB's
-    connection interface app/queries.py actually uses --
-    .execute(sql, params) returning something with .df()/.fetchone(). No
-    query function or page needs to know which connection type it was
-    given.
+    """Adapts google.cloud.bigquery.Client to this module's own
+    ConnectionLike protocol -- .execute(sql, params) returning something
+    with .df()/.fetchone(). No query function or caller needs to know
+    which connection type it was given.
 
     Positional `?` placeholders (DuckDB's DB-API style, used throughout
     this file) are translated to BigQuery's named `@pN` parameters here,
@@ -64,6 +65,14 @@ class BigQueryConnection:
 
     def __init__(self, client: "bigquery.Client") -> None:
         self._client = client
+
+    def cursor(self) -> "BigQueryConnection":
+        # google.cloud.bigquery.Client is already thread-safe for query
+        # submission -- unlike DuckDB, there's no independent per-caller
+        # handle to create here. Returning self just satisfies
+        # ConnectionLike's cursor() method so backend/main.py's per-request
+        # dependency works identically for both connection types.
+        return self
 
     def execute(
         self, sql: str, params: list[object] | None = None
@@ -119,7 +128,14 @@ class StandingsResult:
 
 
 def get_connection(db_path: Path = DEFAULT_DB_PATH) -> ConnectionLike:
-    """One read-only connection per Streamlit session, not one per rerun."""
+    """Opens one connection to the configured destination (DuckDB by
+    default, BigQuery when APP_DESTINATION=bigquery). Lifecycle and reuse
+    are the caller's concern, not this function's -- see the module
+    docstring. Callers that need to share one underlying connection across
+    concurrent uses (multiple Streamlit reruns, multiple FastAPI requests)
+    should call .cursor() on the result per use rather than sharing this
+    return value directly.
+    """
     if _app_destination() == "bigquery":
         project = os.environ["GCP_PROJECT"]
         client = bigquery.Client(
