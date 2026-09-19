@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+@theme {
+  --color-blue: #1E4FD6;
+  --color-blue-dark: #13328F;
+  --color-violet: #7C3AED;
+  --color-violet-soft: #EDE6FD;
+  --color-bg: #F4F6FC;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #EDF0FA;
+  --color-text: #131A2E;
+  --color-text-muted: #5B6480;
+  --color-line: #E1E5F5;
+  --color-green: #1E9E5A;
+  --color-red: #D93B3B;
+  --font-display: "Staatliches", sans-serif;
+  --font-body: "Hanken Grotesk", sans-serif;
+}
