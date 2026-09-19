@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import * as Tabs from '@radix-ui/react-tabs'
 import { useCurrentSeason, useLeagueSeasons } from '../hooks/useLeagueSeasons'
@@ -26,6 +26,14 @@ export function LeagueDetailDialog({
   const { data: currentSeasonId } = useCurrentSeason(code, isOpen)
   const [selectedSeason, setSelectedSeason] = useState<number | undefined>(undefined)
   const seasonId = selectedSeason ?? currentSeasonId
+
+  // Season ids are disjoint per competition, and this dialog stays mounted
+  // across opens/closes -- without this, reopening on a different
+  // competition would carry over a stale season selection and tab.
+  useEffect(() => {
+    setSelectedSeason(undefined)
+    setActiveTab('table')
+  }, [competitionCode])
 
   return (
     <Dialog.Root open={competitionCode !== null} onOpenChange={(open) => !open && onClose()}>
