@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useCompetitions } from '../hooks/useCompetitions'
 import { LeagueCard } from '../components/LeagueCard'
 import { LeagueDetailDialog } from '../components/LeagueDetailDialog'
+import { CrossLeagueDashboard } from '../components/CrossLeagueDashboard'
 
 export function Leagues() {
   const { data, isLoading, error } = useCompetitions()
@@ -27,6 +28,7 @@ export function Leagues() {
         competitionName={data?.find((c) => c.competition_code === openCode)?.competition_name}
         onClose={() => setOpenCode(null)}
       />
+      <CrossLeagueDashboard />
     </div>
   )
 }

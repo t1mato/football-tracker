@@ -5,6 +5,8 @@ import { useCurrentSeason, useLeagueSeasons } from '../hooks/useLeagueSeasons'
 import { StandingsTab } from './tabs/StandingsTab'
 import { RecentResultsTab } from './tabs/RecentResultsTab'
 import { FixturesTab } from './tabs/FixturesTab'
+import { LeadersTab } from './tabs/LeadersTab'
+import { StreaksTab } from './tabs/StreaksTab'
 
 interface LeagueDetailDialogProps {
   competitionCode: string | null
@@ -76,10 +78,20 @@ export function LeagueDetailDialog({
                 active={activeTab === 'fixtures'}
               />
             </Tabs.Content>
-            {/* Leaders and Streaks Tabs.Content blocks are added in
-                Task 8, directly after this comment -- do not remove it,
-                Task 8's own instructions look for it by this exact
-                text. */}
+            <Tabs.Content value="leaders" className="pt-4">
+              <LeadersTab
+                competitionCode={code}
+                seasonId={seasonId}
+                active={activeTab === 'leaders'}
+              />
+            </Tabs.Content>
+            <Tabs.Content value="streaks" className="pt-4">
+              <StreaksTab
+                competitionCode={code}
+                currentSeasonId={currentSeasonId}
+                active={activeTab === 'streaks'}
+              />
+            </Tabs.Content>
           </Tabs.Root>
         </Dialog.Content>
       </Dialog.Portal>
