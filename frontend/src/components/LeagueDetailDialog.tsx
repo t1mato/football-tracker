@@ -3,7 +3,8 @@ import * as Dialog from '@radix-ui/react-dialog'
 import * as Tabs from '@radix-ui/react-tabs'
 import { useCurrentSeason, useLeagueSeasons } from '../hooks/useLeagueSeasons'
 import { StandingsTab } from './tabs/StandingsTab'
-import { ResultsTab } from './tabs/ResultsTab'
+import { RecentResultsTab } from './tabs/RecentResultsTab'
+import { FixturesTab } from './tabs/FixturesTab'
 
 interface LeagueDetailDialogProps {
   competitionCode: string | null
@@ -62,15 +63,23 @@ export function LeagueDetailDialog({
               />
             </Tabs.Content>
             <Tabs.Content value="results" className="pt-4">
-              <ResultsTab
+              <RecentResultsTab
                 competitionCode={code}
                 seasonId={seasonId}
                 active={activeTab === 'results'}
               />
             </Tabs.Content>
-            {/* Fixtures, Leaders, Streaks tab contents are wired in Tasks
-                7-8 -- each follows the exact `active={activeTab === '<name>'}`
-                pattern StandingsTab and ResultsTab already establish above. */}
+            <Tabs.Content value="fixtures" className="pt-4">
+              <FixturesTab
+                competitionCode={code}
+                seasonId={seasonId}
+                active={activeTab === 'fixtures'}
+              />
+            </Tabs.Content>
+            {/* Leaders and Streaks Tabs.Content blocks are added in
+                Task 8, directly after this comment -- do not remove it,
+                Task 8's own instructions look for it by this exact
+                text. */}
           </Tabs.Root>
         </Dialog.Content>
       </Dialog.Portal>
