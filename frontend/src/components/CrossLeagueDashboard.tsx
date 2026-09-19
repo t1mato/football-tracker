@@ -1,9 +1,11 @@
 import { useCrossLeagueStats } from '../hooks/useCrossLeagueStats'
+import { ErrorMessage } from './ErrorMessage'
 
 export function CrossLeagueDashboard() {
-  const { data, isLoading } = useCrossLeagueStats()
+  const { data, isLoading, error } = useCrossLeagueStats()
 
   if (isLoading) return <p>Loading...</p>
+  if (error) return <ErrorMessage resource="cross-league stats" />
   if (!data) return null
 
   return (

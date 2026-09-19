@@ -1,4 +1,5 @@
 import { useLeagueStreaks, useTeamsInSeason } from '../../hooks/useLeagueStreaks'
+import { ErrorMessage } from '../ErrorMessage'
 
 interface StreaksTabProps {
   competitionCode: string
@@ -7,20 +8,41 @@ interface StreaksTabProps {
 }
 
 export function StreaksTab({ competitionCode, currentSeasonId, active }: StreaksTabProps) {
-  const { data: streaks, isLoading } = useLeagueStreaks(competitionCode, active)
-  const { data: currentTeams } = useTeamsInSeason(competitionCode, currentSeasonId, active)
+  const { data: streaks, isLoading, error } = useLeagueStreaks(competitionCode, active)
+  const {
+    data: currentTeams,
+    isLoading: teamsLoading,
+    error: teamsError,
+  } = useTeamsInSeason(competitionCode, currentSeasonId, active)
 
   if (!active) return null
-  if (isLoading) return <p>Loading...</p>
+  if (isLoading || teamsLoading) return <p>Loading...</p>
+  if (error || teamsError) return <ErrorMessage resource="streaks" />
   if (!streaks || streaks.length === 0) return <p>No streak data available for this competition.</p>
 
   const currentTeamIds = new Set((currentTeams ?? []).map((t) => t.team_id))
   const current = streaks
     .filter((s) => currentTeamIds.has(s.team_id))
-    .sort((a, b) => b.current_win_streak - a.current_win_streak)
+    .sort(
+      (a, b) =>
+        b.current_win_streak - a.current_win_streak ||
+        b.current_unbeaten_streak - a.current_unbeaten_streak ||
+        a.team_name.localeCompare(b.team_name)
+    )
+
+  const longest = [...streaks].sort(
+    (a, b) =>
+      b.longest_win_streak - a.longest_win_streak ||
+      b.longest_unbeaten_streak - a.longest_unbeaten_streak ||
+      a.team_name.localeCompare(b.team_name)
+  )
 
   return (
     <div>
+      <p className="text-text-muted text-sm mb-3">
+        Streaks reflect current form as of today, across the current season's active teams --
+        independent of the season selected above.
+      </p>
       <h3 className="font-semibold">Current Streaks</h3>
       <table className="w-full text-sm mb-4">
         <tbody>
@@ -36,15 +58,13 @@ export function StreaksTab({ competitionCode, currentSeasonId, active }: Streaks
       <h3 className="font-semibold">All-Time Records</h3>
       <table className="w-full text-sm">
         <tbody>
-          {[...streaks]
-            .sort((a, b) => b.longest_win_streak - a.longest_win_streak)
-            .map((row) => (
-              <tr key={row.team_id} className="border-t border-line">
-                <td className="py-1.5">{row.team_name}</td>
-                <td className="text-center">{row.longest_win_streak}W</td>
-                <td className="text-center">{row.longest_unbeaten_streak} unbeaten</td>
-              </tr>
-            ))}
+          {longest.map((row) => (
+            <tr key={row.team_id} className="border-t border-line">
+              <td className="py-1.5">{row.team_name}</td>
+              <td className="text-center">{row.longest_win_streak}W</td>
+              <td className="text-center">{row.longest_unbeaten_streak} unbeaten</td>
+            </tr>
+          ))}
         </tbody>
       </table>
     </div>

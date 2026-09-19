@@ -1,4 +1,5 @@
 import { useMatchDetail } from '../hooks/useMatchDetail'
+import { ErrorMessage } from './ErrorMessage'
 
 interface MatchDetailPanelProps {
   matchId: number
@@ -15,9 +16,10 @@ function formatWeather(
 }
 
 export function MatchDetailPanel({ matchId }: MatchDetailPanelProps) {
-  const { data, isLoading } = useMatchDetail(matchId)
+  const { data, isLoading, error } = useMatchDetail(matchId)
 
   if (isLoading) return <p>Loading match detail...</p>
+  if (error) return <ErrorMessage resource="match detail" />
   if (!data) return null
 
   return (

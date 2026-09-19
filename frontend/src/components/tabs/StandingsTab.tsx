@@ -1,4 +1,5 @@
 import { useReconstructedStandings, useStandings } from '../../hooks/useStandings'
+import { ErrorMessage } from '../ErrorMessage'
 
 interface StandingsTabProps {
   competitionCode: string
@@ -24,6 +25,7 @@ export function StandingsTab({
 
   if (isCurrentSeason) {
     if (current.isLoading) return <p>Loading...</p>
+    if (current.error) return <ErrorMessage resource="standings" />
     if (!current.data || current.data.table === null) {
       return <p>{current.data?.message ?? 'No standings available yet for this competition.'}</p>
     }
@@ -67,6 +69,7 @@ export function StandingsTab({
   }
 
   if (reconstructed.isLoading) return <p>Loading...</p>
+  if (reconstructed.error) return <ErrorMessage resource="standings" />
   if (!reconstructed.data || reconstructed.data.length === 0) {
     return <p>No reconstructed final table available for this season.</p>
   }

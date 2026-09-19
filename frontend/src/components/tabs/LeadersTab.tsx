@@ -1,4 +1,5 @@
 import { useLeagueScorers } from '../../hooks/useLeagueScorers'
+import { ErrorMessage } from '../ErrorMessage'
 
 interface LeadersTabProps {
   competitionCode: string
@@ -7,10 +8,11 @@ interface LeadersTabProps {
 }
 
 export function LeadersTab({ competitionCode, seasonId, active }: LeadersTabProps) {
-  const { data, isLoading } = useLeagueScorers(competitionCode, seasonId, active)
+  const { data, isLoading, error } = useLeagueScorers(competitionCode, seasonId, active)
 
   if (!active) return null
   if (isLoading) return <p>Loading...</p>
+  if (error) return <ErrorMessage resource="leaders" />
   if (!data || data.length === 0) return <p>No scorer data yet for this competition/season.</p>
 
   return (
@@ -23,6 +25,7 @@ export function LeadersTab({ competitionCode, seasonId, active }: LeadersTabProp
           <th className="text-center">G</th>
           <th className="text-center">A</th>
           <th className="text-center">MP</th>
+          <th className="text-center">Pen</th>
         </tr>
       </thead>
       <tbody>
@@ -37,6 +40,7 @@ export function LeadersTab({ competitionCode, seasonId, active }: LeadersTabProp
             <td className="text-center">{row.goals}</td>
             <td className="text-center">{row.assists}</td>
             <td className="text-center">{row.played_matches}</td>
+            <td className="text-center">{row.penalties}</td>
           </tr>
         ))}
       </tbody>
