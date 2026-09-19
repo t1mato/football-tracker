@@ -14,6 +14,8 @@ README.md
 transform/target/
 transform/dbt_packages/
 transform/logs/
+frontend/node_modules/
+frontend/dist/
 .mypy_cache/
 .ruff_cache/
 .pytest_cache/
