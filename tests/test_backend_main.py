@@ -77,7 +77,27 @@ def client_with_frontend(tmp_path: Path) -> Iterator[TestClient]:
     """)
     con.close()
 
-    frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+    # A hand-built stand-in for a real `npm run build` output, not the
+    # actual frontend/dist -- that directory is gitignored and CI has no
+    # Node/npm step to produce it, so pointing this fixture at the real
+    # path made these tests fail on a fresh checkout (404 instead of 200)
+    # despite passing locally. Same convention as the DuckDB fixture
+    # above: hand-built fixture data instead of depending on live/external
+    # build state.
+    frontend_dist = tmp_path / "dist"
+    frontend_dist.mkdir()
+    (frontend_dist / "index.html").write_text(
+        "<html><body><div id=\"root\"></div></body></html>"
+    )
+    (frontend_dist / "favicon.svg").write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg"></svg>'
+    )
+    # backend/main.py mounts StaticFiles(directory=frontend_dist / "assets")
+    # unconditionally whenever frontend_dist.exists() -- that mount raises
+    # at app-construction time if "assets" doesn't exist on disk, even
+    # though none of these tests exercise it directly.
+    (frontend_dist / "assets").mkdir()
+
     app = create_app(db_path=db_path, frontend_dist=frontend_dist)
     with TestClient(app) as test_client:
         yield test_client
