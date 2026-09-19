@@ -1,38 +1,29 @@
-import { useQuery } from '@tanstack/react-query'
-
-interface Competition {
-  competition_code: string
-  competition_name: string
-  area_name: string
-  emblem: string | null
-  area_flag: string | null
-}
-
-async function fetchCompetitions(): Promise<Competition[]> {
-  const response = await fetch('/api/competitions')
-  if (!response.ok) {
-    throw new Error(`GET /api/competitions failed: ${response.status}`)
-  }
-  return response.json()
-}
+import { useState } from 'react'
+import { useCompetitions } from '../hooks/useCompetitions'
+import { LeagueCard } from '../components/LeagueCard'
 
 export function Leagues() {
-  const { data, isLoading, error } = useQuery({
-    queryKey: ['competitions'],
-    queryFn: fetchCompetitions,
-  })
+  const { data, isLoading, error } = useCompetitions()
+  const [_openCode, setOpenCode] = useState<string | null>(null)
 
   if (isLoading) return <p>Loading...</p>
   if (error) return <p>Error: {error.message}</p>
 
   return (
-    <div>
-      <h1 className="font-display text-4xl">Leagues</h1>
-      <ul>
+    <div className="p-6">
+      <h1 className="font-display text-4xl uppercase mb-6">Leagues</h1>
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {data?.map((c) => (
-          <li key={c.competition_code}>{c.competition_name} — {c.area_name}</li>
+          <LeagueCard
+            key={c.competition_code}
+            competition={c}
+            onView={() => setOpenCode(c.competition_code)}
+          />
         ))}
-      </ul>
+      </div>
+      {/* LeagueDetailDialog wired in Task 6 -- openCode/setOpenCode
+          already threaded through so that task only adds the dialog
+          itself, not this state plumbing. */}
     </div>
   )
 }
