@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useCompetitions } from '../hooks/useCompetitions'
 import { LeagueCard } from '../components/LeagueCard'
+import { LeagueDetailDialog } from '../components/LeagueDetailDialog'
 
 export function Leagues() {
   const { data, isLoading, error } = useCompetitions()
-  const [_openCode, setOpenCode] = useState<string | null>(null)
+  const [openCode, setOpenCode] = useState<string | null>(null)
 
   if (isLoading) return <p>Loading...</p>
   if (error) return <p>Error: {error.message}</p>
@@ -21,9 +22,11 @@ export function Leagues() {
           />
         ))}
       </div>
-      {/* LeagueDetailDialog wired in Task 6 -- openCode/setOpenCode
-          already threaded through so that task only adds the dialog
-          itself, not this state plumbing. */}
+      <LeagueDetailDialog
+        competitionCode={openCode}
+        competitionName={data?.find((c) => c.competition_code === openCode)?.competition_name}
+        onClose={() => setOpenCode(null)}
+      />
     </div>
   )
 }
