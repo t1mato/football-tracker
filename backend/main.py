@@ -22,6 +22,18 @@ from warehouse.queries import (
 )
 
 
+def get_con(request: Request) -> ConnectionLike:
+    # .cursor() gives each request its own independently-usable handle
+    # on the same underlying database/client rather than every
+    # concurrent request racing on the one shared app.state.con.
+    # DuckDBPyConnection.cursor() is DuckDB's own documented pattern
+    # for multi-threaded use; BigQueryConnection.cursor() returns self
+    # since the underlying bigquery.Client is already thread-safe for
+    # query submission.
+    con: ConnectionLike = request.app.state.con
+    return con.cursor()
+
+
 def create_app(
     db_path: Path = DEFAULT_DB_PATH, frontend_dist: Path | None = None
 ) -> FastAPI:
@@ -53,17 +65,6 @@ def create_app(
         allow_headers=["*"],
     )
 
-    def get_con(request: Request) -> ConnectionLike:
-        # .cursor() gives each request its own independently-usable handle
-        # on the same underlying database/client rather than every
-        # concurrent request racing on the one shared app.state.con.
-        # DuckDBPyConnection.cursor() is DuckDB's own documented pattern
-        # for multi-threaded use; BigQueryConnection.cursor() returns self
-        # since the underlying bigquery.Client is already thread-safe for
-        # query submission.
-        con: ConnectionLike = request.app.state.con
-        return con.cursor()
-
     @app.get("/api/health")
     def health() -> dict[str, str]:
         return {"status": "ok"}
@@ -80,6 +81,15 @@ def create_app(
         # FastAPI serializes to JSON), same convention as
         # warehouse/queries.py's own cast() usage.
         return cast(list[dict[str, object]], df.to_dict(orient="records"))
+
+    # Import placed here, not at module top, to sidestep the circular
+    # import shape this creates (main.py -> routers/leagues.py ->
+    # back to main.py for get_con/ConnectionLike): by the time
+    # create_app() runs, main.py's own module-level code -- including
+    # get_con's definition above -- has already fully executed.
+    from backend.routers.leagues import router as leagues_router
+
+    app.include_router(leagues_router)
 
     if frontend_dist is None:
         frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
