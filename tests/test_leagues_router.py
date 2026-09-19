@@ -76,6 +76,55 @@ def client(tmp_path: Path) -> TestClient:
             avg_goals_per_match double, avg_goal_margin double, home_win_rate double
         )
     """)
+    con.execute("""
+        create table fct_standings_snapshot (
+            competition_code varchar, season_id bigint, team_id bigint,
+            snapshot_date date, stage varchar, table_type varchar,
+            position integer, played_games integer, won integer,
+            draw integer, lost integer, goals_for integer,
+            goals_against integer, goal_difference integer,
+            points integer, form varchar
+        )
+    """)
+    con.execute("""
+        insert into fct_standings_snapshot values
+            ('PL', 2526, 1, '2026-01-15', 'REGULAR_SEASON', 'TOTAL',
+             1, 20, 15, 3, 2, 40, 15, 25, 48, 'WWDWL')
+    """)
+    con.execute("""
+        create table mart_standings_over_time (
+            competition_code varchar, season_id bigint, team_id bigint,
+            group_name varchar, matchday integer, position integer,
+            cumulative_points integer, cumulative_goal_difference integer,
+            cumulative_goals_for integer
+        )
+    """)
+    con.execute("""
+        insert into mart_standings_over_time values
+            ('PL', 2425, 1, NULL, 38, 3, 70, 20, 65)
+    """)
+    con.execute("""
+        create table fct_scorers (
+            player_id bigint, competition_code varchar, season_id bigint,
+            team_id bigint, team_name varchar, player_name varchar,
+            goals bigint, assists bigint, played_matches bigint,
+            penalties bigint
+        )
+    """)
+    con.execute("""
+        insert into fct_scorers values
+            (501, 'PL', 2526, 1, 'Team A', 'Top Scorer', 12, 4, 20, 2)
+    """)
+    con.execute("""
+        create table mart_streaks (
+            team_id bigint, competition_code varchar,
+            current_win_streak integer, current_unbeaten_streak integer,
+            longest_win_streak integer, longest_unbeaten_streak integer
+        )
+    """)
+    con.execute("""
+        insert into mart_streaks values (1, 'PL', 3, 5, 6, 9)
+    """)
     con.close()
 
     app = create_app(db_path=db_path)
@@ -131,3 +180,55 @@ def test_match_detail_404s_for_an_unknown_match_id(client: TestClient) -> None:
     response = client.get("/api/matches/999999")
 
     assert response.status_code == 404
+
+
+def test_standings_returns_the_current_table(client: TestClient) -> None:
+    response = client.get("/api/leagues/PL/standings?season=2526")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["message"] is None
+    assert body["table"][0]["team_name"] == "Team A"
+    assert body["table"][0]["points"] == 48
+
+
+def test_reconstructed_standings_returns_the_final_matchday(client: TestClient) -> None:
+    response = client.get("/api/leagues/PL/reconstructed-standings?season=2425")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["position"] == 3
+    assert body[0]["points"] == 70
+
+
+def test_results_returns_the_finished_match(client: TestClient) -> None:
+    response = client.get("/api/leagues/PL/results?season=2526")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["full_time_home"] == 2
+
+
+def test_fixtures_returns_no_upcoming_matches(client: TestClient) -> None:
+    response = client.get("/api/leagues/PL/fixtures?season=2526")
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+def test_scorers_returns_the_ranked_leaderboard(client: TestClient) -> None:
+    response = client.get("/api/leagues/PL/scorers?season=2526")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["player_name"] == "Top Scorer"
+    assert body[0]["goals"] == 12
+
+
+def test_streaks_returns_the_team_streak_row(client: TestClient) -> None:
+    response = client.get("/api/leagues/PL/streaks")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["current_win_streak"] == 3
