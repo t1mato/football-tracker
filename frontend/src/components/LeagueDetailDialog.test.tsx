@@ -18,10 +18,18 @@ function renderWithQueryClient(ui: React.ReactElement) {
 describe('LeagueDetailDialog', () => {
   let standingsCallCount = 0
   let resultsCallCount = 0
+  let fixturesCallCount = 0
+  let scorersCallCount = 0
+  let streaksCallCount = 0
+  let teamsInSeasonCallCount = 0
 
   beforeEach(() => {
     standingsCallCount = 0
     resultsCallCount = 0
+    fixturesCallCount = 0
+    scorersCallCount = 0
+    streaksCallCount = 0
+    teamsInSeasonCallCount = 0
     server.use(
       http.get('/api/leagues/PL/seasons', () =>
         HttpResponse.json([{ season_id: 2526, start_date: '2025-08-01', end_date: '2026-05-31' }])
@@ -35,6 +43,22 @@ describe('LeagueDetailDialog', () => {
       }),
       http.get('/api/leagues/PL/results', () => {
         resultsCallCount++
+        return HttpResponse.json([])
+      }),
+      http.get('/api/leagues/PL/fixtures', () => {
+        fixturesCallCount++
+        return HttpResponse.json([])
+      }),
+      http.get('/api/leagues/PL/scorers', () => {
+        scorersCallCount++
+        return HttpResponse.json([])
+      }),
+      http.get('/api/leagues/PL/streaks', () => {
+        streaksCallCount++
+        return HttpResponse.json([])
+      }),
+      http.get('/api/leagues/PL/teams-in-season', () => {
+        teamsInSeasonCallCount++
         return HttpResponse.json([])
       })
     )
@@ -66,5 +90,43 @@ describe('LeagueDetailDialog', () => {
     await userEvent.click(await screen.findByRole('tab', { name: /recent results/i }))
 
     await waitFor(() => expect(resultsCallCount).toBe(1))
+  })
+
+  it('fetches fixtures only once the Fixtures tab is clicked', async () => {
+    renderWithQueryClient(
+      <LeagueDetailDialog competitionCode="PL" competitionName="Premier League" onClose={() => {}} />
+    )
+    await waitFor(() => expect(standingsCallCount).toBe(1))
+    expect(fixturesCallCount).toBe(0)
+
+    await userEvent.click(await screen.findByRole('tab', { name: /fixtures/i }))
+
+    await waitFor(() => expect(fixturesCallCount).toBe(1))
+  })
+
+  it('fetches leaders only once the Leaders tab is clicked', async () => {
+    renderWithQueryClient(
+      <LeagueDetailDialog competitionCode="PL" competitionName="Premier League" onClose={() => {}} />
+    )
+    await waitFor(() => expect(standingsCallCount).toBe(1))
+    expect(scorersCallCount).toBe(0)
+
+    await userEvent.click(await screen.findByRole('tab', { name: /leaders/i }))
+
+    await waitFor(() => expect(scorersCallCount).toBe(1))
+  })
+
+  it('fetches streaks only once the Streaks tab is clicked', async () => {
+    renderWithQueryClient(
+      <LeagueDetailDialog competitionCode="PL" competitionName="Premier League" onClose={() => {}} />
+    )
+    await waitFor(() => expect(standingsCallCount).toBe(1))
+    expect(streaksCallCount).toBe(0)
+    expect(teamsInSeasonCallCount).toBe(0)
+
+    await userEvent.click(await screen.findByRole('tab', { name: /streaks/i }))
+
+    await waitFor(() => expect(streaksCallCount).toBe(1))
+    await waitFor(() => expect(teamsInSeasonCallCount).toBe(1))
   })
 })
