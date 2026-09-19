@@ -63,3 +63,52 @@ def test_competitions_returns_the_seeded_row(client: TestClient) -> None:
             "area_flag": "flag.svg",
         }
     ]
+
+
+@pytest.fixture
+def client_with_frontend(tmp_path: Path) -> Iterator[TestClient]:
+    db_path = tmp_path / "test.duckdb"
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        create table dim_competitions (
+            competition_code varchar, competition_name varchar,
+            area_name varchar, emblem varchar, area_flag varchar
+        )
+    """)
+    con.close()
+
+    frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+    app = create_app(db_path=db_path, frontend_dist=frontend_dist)
+    with TestClient(app) as test_client:
+        yield test_client
+
+
+def test_unknown_api_path_404s(client_with_frontend: TestClient) -> None:
+    response = client_with_frontend.get("/api/does-not-exist")
+
+    assert response.status_code == 404
+
+
+def test_root_path_serves_the_built_index_html(client_with_frontend: TestClient) -> None:
+    response = client_with_frontend.get("/")
+
+    assert response.status_code == 200
+    assert "text/html" in response.headers["content-type"]
+    assert "<div id=\"root\">" in response.text
+
+
+def test_client_side_route_serves_index_html_too(client_with_frontend: TestClient) -> None:
+    response = client_with_frontend.get("/teams")
+
+    assert response.status_code == 200
+    assert "<div id=\"root\">" in response.text
+
+
+def test_a_real_built_asset_is_served_directly(client_with_frontend: TestClient) -> None:
+    # frontend/public/favicon.svg is copied to the dist root by Vite's
+    # build -- confirms the "serve a real file at the dist root directly"
+    # branch (not the /assets mount, not the index.html fallback).
+    response = client_with_frontend.get("/favicon.svg")
+
+    assert response.status_code == 200
+    assert "svg" in response.headers["content-type"]
