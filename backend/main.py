@@ -53,6 +53,19 @@ def create_app(db_path: Path = DEFAULT_DB_PATH) -> FastAPI:
         # warehouse/queries.py's own cast() usage.
         return cast(list[dict[str, object]], df.to_dict(orient="records"))
 
+    from fastapi.responses import FileResponse
+    from fastapi.staticfiles import StaticFiles
+
+    frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
+    if frontend_dist.exists():
+        app.mount(
+            "/assets", StaticFiles(directory=frontend_dist / "assets"), name="assets"
+        )
+
+        @app.get("/{full_path:path}")
+        def spa_fallback(full_path: str) -> FileResponse:
+            return FileResponse(frontend_dist / "index.html")
+
     return app
 
 
