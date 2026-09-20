@@ -6,6 +6,7 @@ import { TeamFixturesTab } from './tabs/TeamFixturesTab'
 import { StatsTab } from './tabs/StatsTab'
 import { PositionTab } from './tabs/PositionTab'
 import { TeamStreaksTab } from './tabs/TeamStreaksTab'
+import { CompareTab } from './tabs/CompareTab'
 
 interface TeamDetailDialogProps {
   teamId: number | null
@@ -80,9 +81,9 @@ export function TeamDetailDialog({
           active={activeTab === 'streaks'}
         />
       </Tabs.Content>
-      {/* Compare Tabs.Content block is added in Task 8, directly after
-          this comment -- do not remove it, Task 8's own instructions
-          look for it by this exact text. */}
+      <Tabs.Content value="compare" className="pt-4">
+        <CompareTab teamId={teamId} active={activeTab === 'compare'} />
+      </Tabs.Content>
     </DetailDialog>
   )
 }
