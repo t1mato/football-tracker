@@ -3,6 +3,7 @@ import { useCompetitions } from '../hooks/useCompetitions'
 import { useCurrentSeason } from '../hooks/useLeagueSeasons'
 import { useTeams } from '../hooks/useTeams'
 import { TeamCard } from '../components/TeamCard'
+import { TeamDetailDialog } from '../components/TeamDetailDialog'
 
 export function Teams() {
   const { data: competitions, isLoading, error } = useCompetitions()
@@ -15,7 +16,7 @@ export function Teams() {
     isLoading: teamsLoading,
     error: teamsError,
   } = useTeams(code, seasonId, code !== '' && seasonId !== undefined)
-  const [_openTeamId, setOpenTeamId] = useState<number | null>(null)
+  const [openTeamId, setOpenTeamId] = useState<number | null>(null)
 
   if (isLoading) return <p>Loading...</p>
   if (error) return <p>Error: {error.message}</p>
@@ -41,9 +42,13 @@ export function Teams() {
           <TeamCard key={t.team_id} team={t} onView={() => setOpenTeamId(t.team_id)} />
         ))}
       </div>
-      {/* TeamDetailDialog wired in Task 5 -- _openTeamId/setOpenTeamId
-          already threaded through above; Task 5 reads it (dropping the
-          leading underscore) instead of adding new state. */}
+      <TeamDetailDialog
+        teamId={openTeamId}
+        teamName={teams?.find((t) => t.team_id === openTeamId)?.team_name}
+        leagueCode={code}
+        leagueSeasonId={seasonId}
+        onClose={() => setOpenTeamId(null)}
+      />
     </div>
   )
 }
