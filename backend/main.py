@@ -91,6 +91,10 @@ def create_app(
 
     app.include_router(leagues_router)
 
+    from backend.routers.teams import router as teams_router
+
+    app.include_router(teams_router)
+
     if frontend_dist is None:
         frontend_dist = Path(__file__).parent.parent / "frontend" / "dist"
     if frontend_dist.exists():
