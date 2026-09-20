@@ -85,6 +85,53 @@ def client(tmp_path: Path) -> TestClient:
             wind_speed_10m double, data_type varchar
         )
     """)
+    con.execute("""
+        create table fct_standings_snapshot (
+            competition_code varchar, season_id bigint, team_id bigint,
+            snapshot_date date, stage varchar, table_type varchar,
+            position integer, played_games integer, won integer,
+            draw integer, lost integer, goals_for integer,
+            goals_against integer, goal_difference integer,
+            points integer, form varchar
+        )
+    """)
+    con.execute("""
+        insert into fct_standings_snapshot values
+            ('PL', 2526, 1, '2026-01-15', 'REGULAR_SEASON', 'TOTAL',
+             1, 20, 15, 3, 2, 40, 15, 25, 48, 'WWDWL')
+    """)
+    con.execute("""
+        create table mart_standings_over_time (
+            competition_code varchar, season_id bigint, team_id bigint,
+            group_name varchar, matchday integer, position integer,
+            cumulative_points integer, cumulative_goal_difference integer,
+            cumulative_goals_for integer
+        )
+    """)
+    con.execute("""
+        insert into mart_standings_over_time values
+            ('PL', 2526, 1, NULL, 20, 1, 48, 25, 40)
+    """)
+    con.execute("""
+        create table mart_streaks (
+            team_id bigint, competition_code varchar,
+            current_win_streak integer, current_unbeaten_streak integer,
+            longest_win_streak integer, longest_unbeaten_streak integer
+        )
+    """)
+    con.execute("""
+        insert into mart_streaks values (1, 'PL', 3, 5, 8, 10)
+    """)
+    con.execute("""
+        create table mart_head_to_head (
+            team_a_id bigint, team_b_id bigint, matches_played bigint,
+            team_a_wins bigint, team_b_wins bigint, draws bigint,
+            team_a_goals bigint, team_b_goals bigint
+        )
+    """)
+    con.execute("""
+        insert into mart_head_to_head values (1, 2, 3, 2, 1, 0, 5, 3)
+    """)
     con.close()
 
     app = create_app(db_path=db_path)
@@ -131,3 +178,78 @@ def test_team_upcoming_returns_scheduled_matches_only(client: TestClient) -> Non
     assert len(body) == 1
     assert body[0]["opponent_team_name"] == "Team C"
     assert body[0]["goals_for"] is None
+
+
+def test_team_stats_returns_the_teams_row(client: TestClient) -> None:
+    response = client.get("/api/teams/1/stats", params={"league": "PL", "season": 2526})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["message"] is None
+    assert body["stats"]["position"] == 1
+    assert body["stats"]["points"] == 48
+
+
+def test_team_stats_message_when_team_not_in_table(client: TestClient) -> None:
+    response = client.get("/api/teams/3/stats", params={"league": "PL", "season": 2526})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["stats"] is None
+    assert "No season stats available" in body["message"]
+
+
+def test_position_history_returns_matchday_series(client: TestClient) -> None:
+    response = client.get(
+        "/api/teams/1/position-history", params={"league": "PL", "season": 2526}
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body == [{"matchday": 20, "position": 1}]
+
+
+def test_team_streaks_returns_the_teams_row(client: TestClient) -> None:
+    response = client.get("/api/teams/1/streaks", params={"league": "PL"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["message"] is None
+    assert body["streaks"]["current_win_streak"] == 3
+    assert body["streaks"]["longest_unbeaten_streak"] == 10
+
+
+def test_team_streaks_message_when_team_has_none(client: TestClient) -> None:
+    response = client.get("/api/teams/3/streaks", params={"league": "PL"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["streaks"] is None
+    assert "No streak data available" in body["message"]
+
+
+def test_head_to_head_returns_the_record_regardless_of_id_order(client: TestClient) -> None:
+    response = client.get("/api/teams/2/head-to-head/1")
+
+    assert response.status_code == 200
+    body = response.json()
+    # team_1=2, team_2=1 here, so the mart's team_a(=1)/team_b(=2) values
+    # must come back swapped onto team_1_*/team_2_*.
+    assert body["team_1_wins"] == 1
+    assert body["team_2_wins"] == 2
+
+
+def test_head_to_head_returns_null_when_teams_have_not_played(client: TestClient) -> None:
+    response = client.get("/api/teams/1/head-to-head/3")
+
+    assert response.status_code == 200
+    assert response.json() is None
+
+
+def test_head_to_head_matches_returns_finished_matches(client: TestClient) -> None:
+    response = client.get("/api/teams/1/head-to-head/2/matches")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["full_time_home"] == 2

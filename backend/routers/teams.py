@@ -8,10 +8,15 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from backend.main import get_con
-from backend.serialization import records
+from backend.serialization import record, records
 from warehouse.queries import (
     ConnectionLike,
     get_current_teams,
+    get_head_to_head,
+    get_head_to_head_matches,
+    get_standings,
+    get_streaks,
+    get_team_position_history,
     get_team_recent_form,
     get_team_upcoming,
     get_teams_for_league,
@@ -46,3 +51,57 @@ def team_upcoming(
     team_id: int, con: Annotated[ConnectionLike, Depends(get_con)]
 ) -> list[dict[str, object]]:
     return records(get_team_upcoming(con, team_id))
+
+
+@router.get("/api/teams/{team_id}/stats")
+def team_stats(
+    team_id: int, league: str, season: int, con: Annotated[ConnectionLike, Depends(get_con)]
+) -> dict[str, object]:
+    result = get_standings(con, league, season)
+    if result.table is None:
+        return {"stats": None, "message": result.message}
+    row = result.table[result.table["team_id"] == team_id]
+    if row.empty:
+        return {
+            "stats": None,
+            "message": "No season stats available for this team in this league yet.",
+        }
+    return {"stats": record(row.iloc[0]), "message": None}
+
+
+@router.get("/api/teams/{team_id}/position-history")
+def team_position_history(
+    team_id: int, league: str, season: int, con: Annotated[ConnectionLike, Depends(get_con)]
+) -> list[dict[str, object]]:
+    return records(get_team_position_history(con, team_id, league, season))
+
+
+@router.get("/api/teams/{team_id}/streaks")
+def team_streaks(
+    team_id: int, league: str, con: Annotated[ConnectionLike, Depends(get_con)]
+) -> dict[str, object]:
+    streaks = get_streaks(con, league)
+    row = streaks[streaks["team_id"] == team_id]
+    if row.empty:
+        return {
+            "streaks": None,
+            "message": "No streak data available for this team in this league yet.",
+        }
+    return {"streaks": record(row.iloc[0]), "message": None}
+
+
+@router.get("/api/teams/{team_id}/head-to-head/{opponent_id}")
+def head_to_head(
+    team_id: int, opponent_id: int, con: Annotated[ConnectionLike, Depends(get_con)]
+) -> dict[str, object] | None:
+    result = get_head_to_head(con, team_id, opponent_id)
+    if result is None:
+        return None
+    return record(result)
+
+
+@router.get("/api/teams/{team_id}/head-to-head/{opponent_id}/matches")
+def head_to_head_matches(
+    team_id: int, opponent_id: int, con: Annotated[ConnectionLike, Depends(get_con)]
+) -> list[dict[str, object]]:
+    return records(get_head_to_head_matches(con, team_id, opponent_id))
