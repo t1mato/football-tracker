@@ -72,4 +72,26 @@ describe('CompareTab', () => {
     expect(screen.queryByRole('option', { name: 'Team A' })).not.toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Team B' })).toBeInTheDocument()
   })
+
+  it('shows a never-played message and skips the match list when the teams have no head-to-head record', async () => {
+    server.use(
+      http.get('/api/teams/1/head-to-head/2', () => {
+        headToHeadCallCount++
+        return HttpResponse.json(null)
+      })
+    )
+
+    renderWithQueryClient(<CompareTab teamId={1} active={true} />)
+
+    const select = await screen.findByRole('combobox')
+    await userEvent.selectOptions(select, 'Team B')
+
+    await waitFor(() => expect(headToHeadCallCount).toBe(1))
+    expect(
+      await screen.findByText(/these two teams haven't played each other yet/i)
+    ).toBeInTheDocument()
+
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(matchesCallCount).toBe(0)
+  })
 })
