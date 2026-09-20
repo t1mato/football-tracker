@@ -7,10 +7,11 @@ import { ErrorMessage } from '../ErrorMessage'
 
 interface CompareTabProps {
   teamId: number | null
+  teamName?: string
   active: boolean
 }
 
-export function CompareTab({ teamId, active }: CompareTabProps) {
+export function CompareTab({ teamId, teamName, active }: CompareTabProps) {
   const [opponentId, setOpponentId] = useState<number | undefined>(undefined)
   const { data: allTeams, isLoading: teamsLoading, error: teamsError } = useAllTeams(active)
   const opponents = (allTeams ?? []).filter((t) => t.team_id !== teamId)
@@ -57,8 +58,8 @@ export function CompareTab({ teamId, active }: CompareTabProps) {
           {!recordLoading && !recordError && record && (
             <>
               <p className="mt-3">
-                Played {record.matches_played}: {record.team_1_wins}W, {opponentName}{' '}
-                {record.team_2_wins}W, {record.draws}D ({record.team_1_goals}-
+                Played {record.matches_played}: {teamName ?? 'This team'} {record.team_1_wins}W,{' '}
+                {opponentName} {record.team_2_wins}W, {record.draws}D ({record.team_1_goals}-
                 {record.team_2_goals} goals)
               </p>
               <h3 className="font-semibold mt-4">Past meetings</h3>

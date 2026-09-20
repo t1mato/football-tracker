@@ -11,6 +11,7 @@ import { CompareTab } from './tabs/CompareTab'
 interface TeamDetailDialogProps {
   teamId: number | null
   teamName?: string
+  teamCrest?: string | null
   leagueCode: string
   leagueSeasonId: number | undefined
   onClose: () => void
@@ -28,6 +29,7 @@ const TABS = [
 export function TeamDetailDialog({
   teamId,
   teamName,
+  teamCrest,
   leagueCode,
   leagueSeasonId,
   onClose,
@@ -48,6 +50,11 @@ export function TeamDetailDialog({
       open={isOpen}
       onOpenChange={(open) => !open && onClose()}
       title={teamName ?? ''}
+      headerExtra={
+        teamCrest ? (
+          <img src={teamCrest} alt="" className="w-16 h-16 object-contain mt-2" />
+        ) : undefined
+      }
       tabs={TABS}
       activeTab={activeTab}
       onTabChange={setActiveTab}
@@ -82,7 +89,7 @@ export function TeamDetailDialog({
         />
       </Tabs.Content>
       <Tabs.Content value="compare" className="pt-4">
-        <CompareTab teamId={teamId} active={activeTab === 'compare'} />
+        <CompareTab teamId={teamId} teamName={teamName} active={activeTab === 'compare'} />
       </Tabs.Content>
     </DetailDialog>
   )

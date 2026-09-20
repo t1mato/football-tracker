@@ -45,6 +45,7 @@ export function Teams() {
       <TeamDetailDialog
         teamId={openTeamId}
         teamName={teams?.find((t) => t.team_id === openTeamId)?.team_name}
+        teamCrest={teams?.find((t) => t.team_id === openTeamId)?.crest}
         leagueCode={code}
         leagueSeasonId={seasonId}
         onClose={() => setOpenTeamId(null)}
