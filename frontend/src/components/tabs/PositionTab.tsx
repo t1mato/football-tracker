@@ -1,4 +1,12 @@
-import { CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis } from 'recharts'
+import {
+  CartesianGrid,
+  Line,
+  LineChart,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from 'recharts'
 import { useTeamPositionHistory } from '../../hooks/useTeamStats'
 import { ErrorMessage } from '../ErrorMessage'
 
@@ -28,23 +36,32 @@ export function PositionTab({ teamId, leagueCode, leagueSeasonId, active }: Posi
 
   return (
     <div>
-      <LineChart width={600} height={300} data={data}>
-        <CartesianGrid strokeDasharray="3 3" />
-        <XAxis
-          dataKey="matchday"
-          type="number"
-          label={{ value: 'Matchday', position: 'insideBottom', offset: -5 }}
-        />
-        <YAxis
-          dataKey="position"
-          reversed
-          domain={[1, maxPosition]}
-          allowDecimals={false}
-          label={{ value: 'Position', angle: -90, position: 'insideLeft' }}
-        />
-        <Tooltip />
-        <Line type="monotone" dataKey="position" stroke="var(--color-blue)" strokeWidth={2} dot />
-      </LineChart>
+      <ResponsiveContainer width="100%" height={300}>
+        <LineChart data={data}>
+          <CartesianGrid strokeDasharray="3 3" />
+          <XAxis
+            dataKey="matchday"
+            type="number"
+            allowDecimals={false}
+            label={{ value: 'Matchday', position: 'insideBottom', offset: -5 }}
+          />
+          <YAxis
+            dataKey="position"
+            reversed
+            domain={[1, maxPosition]}
+            allowDecimals={false}
+            label={{ value: 'Position', angle: -90, position: 'insideLeft' }}
+          />
+          <Tooltip />
+          <Line
+            type="monotone"
+            dataKey="position"
+            stroke="var(--color-blue)"
+            strokeWidth={2}
+            dot
+          />
+        </LineChart>
+      </ResponsiveContainer>
       <p className="text-text-muted text-sm mt-2">
         Reconstructed from match results, not the official table -- may drift from it (points
         deductions, tiebreakers not captured here), and omits a team that hasn't yet played the
