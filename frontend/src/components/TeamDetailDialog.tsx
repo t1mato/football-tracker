@@ -5,6 +5,7 @@ import { FormTab } from './tabs/FormTab'
 import { TeamFixturesTab } from './tabs/TeamFixturesTab'
 import { StatsTab } from './tabs/StatsTab'
 import { PositionTab } from './tabs/PositionTab'
+import { TeamStreaksTab } from './tabs/TeamStreaksTab'
 
 interface TeamDetailDialogProps {
   teamId: number | null
@@ -72,9 +73,16 @@ export function TeamDetailDialog({
           active={activeTab === 'position'}
         />
       </Tabs.Content>
-      {/* Streaks and Compare Tabs.Content blocks are added in Task 7 and
-          Task 8, directly after this comment -- do not remove it, their
-          instructions look for it by this exact text. */}
+      <Tabs.Content value="streaks" className="pt-4">
+        <TeamStreaksTab
+          teamId={teamId}
+          leagueCode={leagueCode}
+          active={activeTab === 'streaks'}
+        />
+      </Tabs.Content>
+      {/* Compare Tabs.Content block is added in Task 8, directly after
+          this comment -- do not remove it, Task 8's own instructions
+          look for it by this exact text. */}
     </DetailDialog>
   )
 }
