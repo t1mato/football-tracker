@@ -3,6 +3,8 @@ import * as Tabs from '@radix-ui/react-tabs'
 import { DetailDialog } from './DetailDialog'
 import { FormTab } from './tabs/FormTab'
 import { TeamFixturesTab } from './tabs/TeamFixturesTab'
+import { StatsTab } from './tabs/StatsTab'
+import { PositionTab } from './tabs/PositionTab'
 
 interface TeamDetailDialogProps {
   teamId: number | null
@@ -24,8 +26,8 @@ const TABS = [
 export function TeamDetailDialog({
   teamId,
   teamName,
-  leagueCode: _leagueCode,
-  leagueSeasonId: _leagueSeasonId,
+  leagueCode,
+  leagueSeasonId,
   onClose,
 }: TeamDetailDialogProps) {
   const [activeTab, setActiveTab] = useState('form')
@@ -54,11 +56,25 @@ export function TeamDetailDialog({
       <Tabs.Content value="fixtures" className="pt-4">
         <TeamFixturesTab teamId={teamId} active={activeTab === 'fixtures'} />
       </Tabs.Content>
-      {/* Stats and Position Tabs.Content blocks are added in Task 6,
-          directly after this comment -- do not remove it, Task 6's own
-          instructions look for it by this exact text. leagueCode/
-          leagueSeasonId are already threaded through this component's
-          props above for Task 6 to use. */}
+      <Tabs.Content value="stats" className="pt-4">
+        <StatsTab
+          teamId={teamId}
+          leagueCode={leagueCode}
+          leagueSeasonId={leagueSeasonId}
+          active={activeTab === 'stats'}
+        />
+      </Tabs.Content>
+      <Tabs.Content value="position" className="pt-4">
+        <PositionTab
+          teamId={teamId}
+          leagueCode={leagueCode}
+          leagueSeasonId={leagueSeasonId}
+          active={activeTab === 'position'}
+        />
+      </Tabs.Content>
+      {/* Streaks and Compare Tabs.Content blocks are added in Task 7 and
+          Task 8, directly after this comment -- do not remove it, their
+          instructions look for it by this exact text. */}
     </DetailDialog>
   )
 }

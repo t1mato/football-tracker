@@ -14,10 +14,14 @@ function renderWithQueryClient(ui: React.ReactElement) {
 describe('TeamDetailDialog', () => {
   let formCallCount = 0
   let upcomingCallCount = 0
+  let statsCallCount = 0
+  let positionCallCount = 0
 
   beforeEach(() => {
     formCallCount = 0
     upcomingCallCount = 0
+    statsCallCount = 0
+    positionCallCount = 0
     server.use(
       http.get('/api/teams/1/form', () => {
         formCallCount++
@@ -25,6 +29,14 @@ describe('TeamDetailDialog', () => {
       }),
       http.get('/api/teams/1/upcoming', () => {
         upcomingCallCount++
+        return HttpResponse.json([])
+      }),
+      http.get('/api/teams/1/stats', () => {
+        statsCallCount++
+        return HttpResponse.json({ stats: null, message: 'No stats yet' })
+      }),
+      http.get('/api/teams/1/position-history', () => {
+        positionCallCount++
         return HttpResponse.json([])
       })
     )
@@ -74,6 +86,42 @@ describe('TeamDetailDialog', () => {
     await userEvent.click(await screen.findByRole('tab', { name: /fixtures/i }))
 
     await waitFor(() => expect(upcomingCallCount).toBe(1))
+  })
+
+  it('fetches stats only once the Stats tab is clicked', async () => {
+    renderWithQueryClient(
+      <TeamDetailDialog
+        teamId={1}
+        teamName="Test United"
+        leagueCode="PL"
+        leagueSeasonId={2526}
+        onClose={() => {}}
+      />
+    )
+    await waitFor(() => expect(formCallCount).toBe(1))
+    expect(statsCallCount).toBe(0)
+
+    await userEvent.click(await screen.findByRole('tab', { name: /^stats$/i }))
+
+    await waitFor(() => expect(statsCallCount).toBe(1))
+  })
+
+  it('fetches position history only once the Position tab is clicked', async () => {
+    renderWithQueryClient(
+      <TeamDetailDialog
+        teamId={1}
+        teamName="Test United"
+        leagueCode="PL"
+        leagueSeasonId={2526}
+        onClose={() => {}}
+      />
+    )
+    await waitFor(() => expect(formCallCount).toBe(1))
+    expect(positionCallCount).toBe(0)
+
+    await userEvent.click(await screen.findByRole('tab', { name: /position/i }))
+
+    await waitFor(() => expect(positionCallCount).toBe(1))
   })
 
   it('does not fetch anything when teamId is null', async () => {
