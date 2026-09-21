@@ -22,13 +22,13 @@ export function PlayerDetailDialog({ playerId, onClose }: PlayerDetailDialogProp
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40" />
         <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-xl p-6 max-w-3xl w-full max-h-[85vh] overflow-y-auto">
+          <Dialog.Title className="font-display text-3xl uppercase">
+            {bio?.player_name ?? 'Player'}
+          </Dialog.Title>
           {bioLoading && <p>Loading...</p>}
           {bioError && <p>{bioError.message}</p>}
           {bio && (
             <>
-              <Dialog.Title className="font-display text-3xl uppercase">
-                {bio.player_name}
-              </Dialog.Title>
               {bio.crest && (
                 <img src={bio.crest} alt="" className="w-12 h-12 object-contain mt-2" />
               )}
