@@ -16,9 +16,10 @@ async function fetchCompetitions(): Promise<Competition[]> {
   return response.json()
 }
 
-export function useCompetitions() {
+export function useCompetitions(enabled = true) {
   return useQuery({
     queryKey: ['competitions'],
     queryFn: fetchCompetitions,
+    enabled,
   })
 }
