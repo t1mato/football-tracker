@@ -90,4 +90,48 @@ describe('PlayerDirectoryTable', () => {
       await screen.findByText('No players match this search/filter.')
     ).toBeInTheDocument()
   })
+
+  it('paginates when there are more than 50 filtered players', async () => {
+    const manyPlayers = Array.from({ length: 61 }, (_, i) => ({
+      player_id: i + 1,
+      player_name: `Player ${String(i + 1).padStart(2, '0')}`,
+      position: null,
+      nationality: null,
+      team_name: null,
+      crest: null,
+    }))
+    server.use(http.get('/api/players', () => HttpResponse.json(manyPlayers)))
+    renderWithQueryClient(<PlayerDirectoryTable onSelectPlayer={() => {}} />)
+
+    await screen.findByText('Player 01')
+    expect(screen.getByText('Player 50')).toBeInTheDocument()
+    expect(screen.queryByText('Player 51')).not.toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(await screen.findByText('Player 51')).toBeInTheDocument()
+    expect(screen.getByText('Player 61')).toBeInTheDocument()
+    expect(screen.queryByText('Player 01')).not.toBeInTheDocument()
+  })
+
+  it('resets to page 1 when the search filter changes', async () => {
+    const manyPlayers = Array.from({ length: 61 }, (_, i) => ({
+      player_id: i + 1,
+      player_name: `Player ${String(i + 1).padStart(2, '0')}`,
+      position: null,
+      nationality: null,
+      team_name: null,
+      crest: null,
+    }))
+    server.use(http.get('/api/players', () => HttpResponse.json(manyPlayers)))
+    renderWithQueryClient(<PlayerDirectoryTable onSelectPlayer={() => {}} />)
+    await screen.findByText('Player 01')
+
+    await userEvent.click(screen.getByRole('button', { name: 'Next' }))
+    await screen.findByText('Player 51')
+
+    await userEvent.type(screen.getByPlaceholderText('Search by name'), 'Player 0')
+
+    expect(await screen.findByText('Player 01')).toBeInTheDocument()
+  })
 })

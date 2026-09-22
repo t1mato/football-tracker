@@ -13,6 +13,15 @@
   --color-line: #E1E5F5;
   --color-green: #1E9E5A;
   --color-red: #D93B3B;
+  --color-yellow: #B8862F;
+  --color-orange: #E2761B;
   --font-display: "Staatliches", sans-serif;
   --font-body: "Hanken Grotesk", sans-serif;
+  --shadow-card: 0 1px 2px rgba(19, 26, 46, 0.06), 0 8px 24px rgba(19, 26, 46, 0.08);
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-body);
 }

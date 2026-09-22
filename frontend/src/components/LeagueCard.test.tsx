@@ -19,12 +19,18 @@ describe('LeagueCard', () => {
     expect(screen.getByText('England')).toBeInTheDocument()
   })
 
-  it('calls onView when the View button is clicked', async () => {
+  it('calls onView when the card is clicked', async () => {
     const onView = vi.fn()
     render(<LeagueCard competition={competition} onView={onView} />)
 
-    await userEvent.click(screen.getByRole('button', { name: /view/i }))
+    await userEvent.click(screen.getByRole('button', { name: /premier league/i }))
 
     expect(onView).toHaveBeenCalledOnce()
+  })
+
+  it('applies a selected style when selected is true', () => {
+    render(<LeagueCard competition={competition} selected onView={() => {}} />)
+
+    expect(screen.getByRole('button', { name: /premier league/i }).className).toMatch(/border-blue/)
   })
 })

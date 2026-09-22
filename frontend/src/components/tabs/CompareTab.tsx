@@ -29,7 +29,7 @@ export function CompareTab({ teamId, teamName, active }: CompareTabProps) {
 
   if (!active) return null
   if (teamsLoading) return <p>Loading...</p>
-  if (teamsError) return <ErrorMessage resource="teams" />
+  if (teamsError) return <ErrorMessage resource="clubs" />
 
   const opponentName = opponents.find((t) => t.team_id === opponentId)?.team_name
 
@@ -53,7 +53,7 @@ export function CompareTab({ teamId, teamName, active }: CompareTabProps) {
           {recordLoading && <p>Loading...</p>}
           {recordError && <ErrorMessage resource="head-to-head record" />}
           {!recordLoading && !recordError && record === null && (
-            <p className="mt-3">These two teams haven't played each other yet.</p>
+            <p className="mt-3">These two clubs haven't played each other yet.</p>
           )}
           {!recordLoading && !recordError && record && (
             <>
@@ -66,9 +66,9 @@ export function CompareTab({ teamId, teamName, active }: CompareTabProps) {
               {matchesLoading && <p>Loading...</p>}
               {matchesError && <ErrorMessage resource="past meetings" />}
               {matches && (
-                <table className="w-full text-sm mt-2">
+                <table className="w-full text-lg mt-2">
                   <thead>
-                    <tr className="text-left text-text-muted text-xs uppercase">
+                    <tr className="text-left text-text-muted text-base uppercase">
                       <th>Kickoff</th>
                       <th>Competition</th>
                       <th>Home</th>

@@ -21,7 +21,7 @@ export function RecentResultsTab({ competitionCode, seasonId, active }: RecentRe
 
   return (
     <div>
-      <table className="w-full text-sm">
+      <table className="w-full text-lg">
         <tbody>
           {data.map((match) => (
             <tr
@@ -31,9 +31,9 @@ export function RecentResultsTab({ competitionCode, seasonId, active }: RecentRe
                 setExpandedMatchId(expandedMatchId === match.match_id ? null : match.match_id)
               }
             >
-              <td className="py-1.5 flex items-center gap-2">
+              <td className="py-3 flex items-center gap-2.5">
                 {match.home_crest && (
-                  <img src={match.home_crest} alt="" className="w-5 h-5 object-contain" />
+                  <img src={match.home_crest} alt="" className="w-6 h-6 object-contain" />
                 )}
                 {match.home_team_name}
               </td>
@@ -42,7 +42,7 @@ export function RecentResultsTab({ competitionCode, seasonId, active }: RecentRe
               </td>
               <td className="flex items-center gap-2">
                 {match.away_crest && (
-                  <img src={match.away_crest} alt="" className="w-5 h-5 object-contain" />
+                  <img src={match.away_crest} alt="" className="w-6 h-6 object-contain" />
                 )}
                 {match.away_team_name}
               </td>

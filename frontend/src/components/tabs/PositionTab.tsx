@@ -37,32 +37,62 @@ export function PositionTab({ teamId, leagueCode, leagueSeasonId, active }: Posi
   return (
     <div>
       <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={data}>
-          <CartesianGrid strokeDasharray="3 3" />
+        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 8, left: 0 }}>
+          <CartesianGrid stroke="var(--color-line)" vertical={false} />
           <XAxis
             dataKey="matchday"
             type="number"
             allowDecimals={false}
-            label={{ value: 'Matchday', position: 'insideBottom', offset: -5 }}
+            tickLine={false}
+            axisLine={{ stroke: 'var(--color-line)' }}
+            tick={{ fill: 'var(--color-text-muted)', fontSize: 12 }}
+            label={{
+              value: 'Matchday',
+              position: 'insideBottom',
+              offset: -6,
+              fill: 'var(--color-text-muted)',
+              fontSize: 12,
+            }}
           />
           <YAxis
             dataKey="position"
             reversed
             domain={[1, maxPosition]}
             allowDecimals={false}
-            label={{ value: 'Position', angle: -90, position: 'insideLeft' }}
+            tickLine={false}
+            axisLine={false}
+            tick={{ fill: 'var(--color-text-muted)', fontSize: 12 }}
+            label={{
+              value: 'Position',
+              angle: -90,
+              position: 'insideLeft',
+              fill: 'var(--color-text-muted)',
+              fontSize: 12,
+            }}
+            width={40}
           />
-          <Tooltip />
+          <Tooltip
+            contentStyle={{
+              background: 'var(--color-surface)',
+              border: '1px solid var(--color-line)',
+              borderRadius: 10,
+              boxShadow: 'var(--shadow-card)',
+              fontSize: 13,
+            }}
+            labelFormatter={(matchday) => `Matchday ${matchday}`}
+            formatter={(value) => [value, 'Position']}
+          />
           <Line
             type="monotone"
             dataKey="position"
             stroke="var(--color-blue)"
             strokeWidth={2}
-            dot
+            dot={false}
+            activeDot={{ r: 5, fill: 'var(--color-blue)', stroke: 'var(--color-surface)', strokeWidth: 2 }}
           />
         </LineChart>
       </ResponsiveContainer>
-      <p className="text-text-muted text-sm mt-2">
+      <p className="text-text-muted text-lg mt-3">
         Reconstructed from match results, not the official table -- may drift from it (points
         deductions, tiebreakers not captured here), and omits a team that hasn't yet played the
         season's latest matchday.

@@ -11,6 +11,7 @@ interface DetailDialogProps {
   open: boolean
   onOpenChange: (open: boolean) => void
   title: string
+  titleIcon?: string | null
   tabs: DetailDialogTab[]
   activeTab: string
   onTabChange: (value: string) => void
@@ -29,6 +30,7 @@ export function DetailDialog({
   open,
   onOpenChange,
   title,
+  titleIcon,
   tabs,
   activeTab,
   onTabChange,
@@ -39,13 +41,20 @@ export function DetailDialog({
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-xl p-6 max-w-3xl w-full max-h-[85vh] overflow-y-auto">
-          <Dialog.Title className="font-display text-3xl uppercase">{title}</Dialog.Title>
+        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-2xl shadow-card p-8 max-w-5xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center gap-4">
+            {titleIcon && <img src={titleIcon} alt="" className="w-12 h-12 object-contain" />}
+            <Dialog.Title className="font-display text-4xl uppercase">{title}</Dialog.Title>
+          </div>
           {headerExtra}
-          <Tabs.Root value={activeTab} onValueChange={onTabChange} className="mt-4">
-            <Tabs.List className="flex gap-4 border-b border-line">
+          <Tabs.Root value={activeTab} onValueChange={onTabChange} className="mt-6">
+            <Tabs.List className="flex gap-6 border-b border-line">
               {tabs.map((tab) => (
-                <Tabs.Trigger key={tab.value} value={tab.value} className="pb-2">
+                <Tabs.Trigger
+                  key={tab.value}
+                  value={tab.value}
+                  className="pb-3 font-bold text-lg text-text-muted border-b-2 border-transparent data-[state=active]:text-blue data-[state=active]:border-blue"
+                >
                   {tab.label}
                 </Tabs.Trigger>
               ))}

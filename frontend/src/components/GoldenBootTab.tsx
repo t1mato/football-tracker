@@ -22,7 +22,7 @@ export function GoldenBootTab({ active }: GoldenBootTabProps) {
       <select
         value={code}
         onChange={(e) => setSelectedCode(e.target.value)}
-        className="mb-4 rounded border border-line px-2 py-1"
+        className="mb-6 rounded-full bg-violet-soft text-violet font-bold text-lg px-5 py-2 border-none"
       >
         {competitions?.map((c) => (
           <option key={c.competition_code} value={c.competition_code}>

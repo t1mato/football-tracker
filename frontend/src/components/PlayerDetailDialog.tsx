@@ -21,45 +21,51 @@ export function PlayerDetailDialog({ playerId, onClose }: PlayerDetailDialogProp
     <Dialog.Root open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 bg-black/40" />
-        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-xl p-6 max-w-3xl w-full max-h-[85vh] overflow-y-auto">
-          <Dialog.Title className="font-display text-3xl uppercase">
-            {bio?.player_name ?? 'Player'}
-          </Dialog.Title>
+        <Dialog.Content className="fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-surface rounded-2xl shadow-card p-8 max-w-5xl w-full max-h-[90vh] overflow-y-auto">
+          <div className="flex items-center gap-4">
+            {bio?.crest && <img src={bio.crest} alt="" className="w-12 h-12 object-contain" />}
+            <Dialog.Title className="font-display text-4xl uppercase">
+              {bio?.player_name ?? 'Player'}
+            </Dialog.Title>
+          </div>
           {bioLoading && <p>Loading...</p>}
           {bioError && <p>{bioError.message}</p>}
           {bio && (
             <>
-              {bio.crest && (
-                <img src={bio.crest} alt="" className="w-12 h-12 object-contain mt-2" />
-              )}
-              <div className="grid grid-cols-3 gap-3 mt-3">
-                <div className="rounded-lg border border-line p-3 text-center">
-                  <p className="text-xs uppercase text-text-muted">Position</p>
-                  <p className="text-xl font-semibold">{bio.position ?? 'Unknown'}</p>
-                </div>
-                <div className="rounded-lg border border-line p-3 text-center">
-                  <p className="text-xs uppercase text-text-muted">Nationality</p>
-                  <p className="text-xl font-semibold">{bio.nationality ?? 'Unknown'}</p>
-                </div>
-                <div className="rounded-lg border border-line p-3 text-center">
-                  <p className="text-xs uppercase text-text-muted">Age</p>
-                  <p className="text-xl font-semibold">
-                    {bio.date_of_birth ? playerAge(bio.date_of_birth) : 'Unknown'}
+              <div className="grid grid-cols-3 gap-4 mt-5">
+                <div className="rounded-lg bg-surface-2 p-4 flex flex-col gap-1">
+                  <p className="font-display text-3xl leading-none">{bio.position ?? 'Unknown'}</p>
+                  <p className="text-sm uppercase tracking-wide text-text-muted">
+                    Position
                   </p>
                 </div>
+                <div className="rounded-lg bg-surface-2 p-4 flex flex-col gap-1">
+                  <p className="font-display text-3xl leading-none">
+                    {bio.nationality ?? 'Unknown'}
+                  </p>
+                  <p className="text-sm uppercase tracking-wide text-text-muted">
+                    Nationality
+                  </p>
+                </div>
+                <div className="rounded-lg bg-surface-2 p-4 flex flex-col gap-1">
+                  <p className="font-display text-3xl leading-none">
+                    {bio.date_of_birth ? playerAge(bio.date_of_birth) : 'Unknown'}
+                  </p>
+                  <p className="text-sm uppercase tracking-wide text-text-muted">Age</p>
+                </div>
               </div>
-              <p className="text-sm text-text-muted mt-2">Club: {bio.team_name ?? 'Unknown'}</p>
+              <p className="text-lg text-text-muted mt-4">Club: {bio.team_name ?? 'Unknown'}</p>
 
-              <h3 className="font-semibold mt-4">Scoring history</h3>
+              <h3 className="font-semibold text-lg mt-6 mb-2">Scoring history</h3>
               {historyLoading && <p>Loading...</p>}
               {historyError && <p>Couldn't load scoring history.</p>}
               {history && history.length === 0 && (
                 <p>No goal/assist contributions recorded for this player.</p>
               )}
               {history && history.length > 0 && (
-                <table className="w-full text-sm mt-2">
+                <table className="w-full text-lg mt-2">
                   <thead>
-                    <tr className="text-left text-text-muted text-xs uppercase">
+                    <tr className="text-left text-text-muted text-base uppercase">
                       <th>Season</th>
                       <th>Competition</th>
                       <th className="text-center">G</th>

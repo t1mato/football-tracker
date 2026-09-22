@@ -10,9 +10,9 @@ interface StatsTabProps {
 
 function Stat({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded-lg border border-line p-3 text-center">
-      <p className="text-xs uppercase text-text-muted">{label}</p>
-      <p className="text-xl font-semibold">{value}</p>
+    <div className="rounded-lg bg-surface-2 p-4 flex flex-col gap-1">
+      <p className="font-display text-3xl leading-none">{value}</p>
+      <p className="text-sm uppercase tracking-wide text-text-muted">{label}</p>
     </div>
   )
 }
@@ -29,7 +29,7 @@ export function StatsTab({ teamId, leagueCode, leagueSeasonId, active }: StatsTa
 
   const s = data.stats
   return (
-    <div className="grid grid-cols-4 gap-3">
+    <div className="grid grid-cols-4 gap-4">
       <Stat label="Position" value={s.position} />
       <Stat label="Played" value={s.played_games} />
       <Stat label="Points" value={s.points} />

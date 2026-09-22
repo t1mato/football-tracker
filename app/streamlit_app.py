@@ -9,7 +9,7 @@ from pathlib import Path
 
 import streamlit as st
 
-st.set_page_config(page_title="Football Tracker", layout="wide")
+st.set_page_config(page_title="footyDB", layout="wide")
 # Path(__file__)-relative, not a CWD-relative string -- st.logo/st.image
 # resolve a local path via plain os.path.isfile()/open() against the
 # process's CWD (unlike st.Page, which resolves relative to this script's

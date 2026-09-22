@@ -88,7 +88,7 @@ describe('CompareTab', () => {
 
     await waitFor(() => expect(headToHeadCallCount).toBe(1))
     expect(
-      await screen.findByText(/these two teams haven't played each other yet/i)
+      await screen.findByText(/these two clubs haven't played each other yet/i)
     ).toBeInTheDocument()
 
     await new Promise((resolve) => setTimeout(resolve, 50))

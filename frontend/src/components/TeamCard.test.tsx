@@ -16,7 +16,7 @@ describe('TeamCard', () => {
     expect(screen.getByText('Test United')).toBeInTheDocument()
     expect(screen.getByRole('img')).toHaveAttribute('src', 'crest.png')
 
-    await userEvent.click(screen.getByRole('button', { name: /view/i }))
+    await userEvent.click(screen.getByRole('button', { name: /test united/i }))
 
     expect(onView).toHaveBeenCalledOnce()
   })
