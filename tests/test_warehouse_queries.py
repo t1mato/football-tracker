@@ -27,6 +27,7 @@ from warehouse.queries import (
     get_head_to_head,
     get_head_to_head_matches,
     get_league_fixtures,
+    get_league_position_history,
     get_league_recent_results,
     get_match_detail,
     get_player_bio,
@@ -362,7 +363,11 @@ def build_standings_db(tmp_path: Path) -> Path:
             lost integer, points integer, goals_for integer, goals_against integer,
             goal_difference integer, form varchar
         );
-        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar)
+        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
+        create table main.mart_team_form (
+            team_id bigint, competition_code varchar, season_id integer,
+            last_5_results varchar
+        )
     """)
     con.close()
     return db_path
@@ -478,6 +483,60 @@ def test_standings_table_includes_team_crest(tmp_path: Path) -> None:
         "https://crests.football-data.org/1.png",
         "https://crests.football-data.org/2.png",
     ]
+
+
+def test_standings_form_comes_from_the_mart_not_the_raw_snapshot_column(
+    tmp_path: Path,
+) -> None:
+    """fct_standings_snapshot.form is NULL on every real row in the live
+    warehouse (checked directly, not assumed) -- the API's own form field
+    isn't populated on this tier. mart_team_form.last_5_results is the
+    real source, joined on (team_id, competition_code, season_id). The
+    fixture's raw form column is deliberately left NULL here to prove the
+    value comes from the mart join, not a passthrough of that column.
+    """
+    db_path = build_standings_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png');
+        insert into main.fct_standings_snapshot values
+            ('PL', 2502, 1, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 1, 3, 3,0,0, 9,7,1,6, null);
+        insert into main.mart_team_form values
+            (1, 'PL', 2502, 'WWDWL')
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    result = get_standings(con, "PL", 2502)
+
+    assert result.table is not None
+    assert result.table.iloc[0]["form"] == "WWDWL"
+
+
+def test_standings_form_is_null_when_the_mart_has_no_row_for_the_team(
+    tmp_path: Path,
+) -> None:
+    """A team with fewer than 5 played matches (or a season just started)
+    may legitimately have no mart_team_form row -- the LEFT JOIN must not
+    drop the standings row, just leave form null.
+    """
+    db_path = build_standings_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png');
+        insert into main.fct_standings_snapshot values
+            ('PL', 2502, 1, '2026-09-07', 'REGULAR_SEASON', 'TOTAL', 1, 1, 1,0,0, 3,2,0,2, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    result = get_standings(con, "PL", 2502)
+
+    assert result.table is not None
+    assert len(result.table) == 1
+    assert pd.isna(result.table.iloc[0]["form"])
 
 
 def build_matches_db(tmp_path: Path) -> Path:
@@ -608,7 +667,7 @@ def build_team_profile_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "test.duckdb"
     con = duckdb.connect(str(db_path))
     con.execute("""
-        create table main.dim_teams (team_id bigint, team_name varchar);
+        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
         create table main.dim_competitions (
             competition_code varchar, competition_name varchar
         );
@@ -638,7 +697,7 @@ def test_current_teams_includes_home_and_away_current_season_appearances(
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.dim_teams values
-            (1, 'Team A'), (2, 'Team B'), (3, 'Team C'), (4, 'Team D');
+            (1, 'Team A', null), (2, 'Team B', null), (3, 'Team C', null), (4, 'Team D', null);
         insert into main.dim_seasons values (2501, 'PL'), (2502, 'PL');
         insert into main.fct_matches values
             (1, 'PL', 2502, 1, 2),
@@ -664,7 +723,8 @@ def test_team_competitions_covers_every_current_competition_for_one_team(
     db_path = build_team_profile_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
-        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B'), (3, 'Team C');
+        insert into main.dim_teams values
+            (1, 'Team A', null), (2, 'Team B', null), (3, 'Team C', null);
         insert into main.dim_competitions values
             ('PL', 'Premier League'), ('CL', 'Champions League');
         insert into main.dim_seasons values (2502, 'PL'), (2601, 'CL');
@@ -717,6 +777,47 @@ def test_position_history_is_empty_when_the_reconstruction_has_nothing_yet(
     con = duckdb.connect(str(build_team_profile_db(tmp_path)), read_only=True)
 
     rows = get_team_position_history(con, 1, "CL", 2601)
+
+    assert rows.empty
+
+
+def test_league_position_history_returns_every_team_with_names_and_crests(
+    tmp_path: Path,
+) -> None:
+    db_path = build_team_profile_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (1, 'Team A', 'https://crests.football-data.org/1.png'),
+            (2, 'Team B', 'https://crests.football-data.org/2.png');
+        insert into main.mart_standings_over_time values
+            (1, 'PL', 2502, 1, 2),
+            (2, 'PL', 2502, 1, 1),
+            (1, 'PL', 2502, 2, 1),
+            (2, 'PL', 2502, 2, 2)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_league_position_history(con, "PL", 2502)
+
+    assert len(rows) == 4
+    assert set(rows["team_name"]) == {"Team A", "Team B"}
+    assert set(rows["crest"]) == {
+        "https://crests.football-data.org/1.png",
+        "https://crests.football-data.org/2.png",
+    }
+    # matchday 1 sorted by position asc: Team B (pos 1) then Team A (pos 2)
+    md1 = rows[rows["matchday"] == 1]
+    assert list(md1["team_name"]) == ["Team B", "Team A"]
+
+
+def test_league_position_history_is_empty_when_the_reconstruction_has_nothing_yet(
+    tmp_path: Path,
+) -> None:
+    con = duckdb.connect(str(build_team_profile_db(tmp_path)), read_only=True)
+
+    rows = get_league_position_history(con, "CL", 2601)
 
     assert rows.empty
 
@@ -944,6 +1045,49 @@ def test_top_scorers_includes_team_crest(tmp_path: Path) -> None:
     assert rows.iloc[0]["crest"] == "https://crests.football-data.org/10.png"
 
 
+def test_top_scorers_caps_at_10_but_keeps_a_tie_spanning_the_boundary(
+    tmp_path: Path,
+) -> None:
+    """QUALIFY rank <= 10, not LIMIT 10 -- a 4-way tie for rank 10 must
+    keep all four players, not arbitrarily cut it down to whichever 10
+    rows the scan happened to return first.
+    """
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (1, 'Team 1', null), (2, 'Team 2', null), (3, 'Team 3', null),
+            (4, 'Team 4', null), (5, 'Team 5', null), (6, 'Team 6', null),
+            (7, 'Team 7', null), (8, 'Team 8', null), (9, 'Team 9', null),
+            (10, 'Team 10', null), (11, 'Team 11', null), (12, 'Team 12', null),
+            (13, 'Team 13', null);
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'P1', 1, 'Team 1', 5, 20, 0, 0),
+            ('PL', 2502, 2, 'P2', 2, 'Team 2', 5, 19, 0, 0),
+            ('PL', 2502, 3, 'P3', 3, 'Team 3', 5, 18, 0, 0),
+            ('PL', 2502, 4, 'P4', 4, 'Team 4', 5, 17, 0, 0),
+            ('PL', 2502, 5, 'P5', 5, 'Team 5', 5, 16, 0, 0),
+            ('PL', 2502, 6, 'P6', 6, 'Team 6', 5, 15, 0, 0),
+            ('PL', 2502, 7, 'P7', 7, 'Team 7', 5, 14, 0, 0),
+            ('PL', 2502, 8, 'P8', 8, 'Team 8', 5, 13, 0, 0),
+            ('PL', 2502, 9, 'P9', 9, 'Team 9', 5, 12, 0, 0),
+            ('PL', 2502, 10, 'P10-a', 10, 'Team 10', 5, 11, 0, 0),
+            ('PL', 2502, 11, 'P10-b', 11, 'Team 11', 5, 11, 0, 0),
+            ('PL', 2502, 12, 'P10-c', 12, 'Team 12', 5, 11, 0, 0),
+            ('PL', 2502, 13, 'P11', 13, 'Team 13', 5, 5, 0, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_scorers(con, "PL", 2502)
+
+    # P1..P9 (rank 1-9) plus all three of the rank-10 tie (P10-a/b/c) --
+    # 12 rows total, none of the tied trio dropped. P11 (rank 12) excluded.
+    assert len(rows) == 12
+    assert "P11" not in set(rows["player_name"])
+    assert {"P10-a", "P10-b", "P10-c"} <= set(rows["player_name"])
+
+
 def build_league_fixtures_db(tmp_path: Path) -> Path:
     db_path = tmp_path / "test.duckdb"
     con = duckdb.connect(str(db_path))
@@ -963,11 +1107,12 @@ def build_league_fixtures_db(tmp_path: Path) -> Path:
     return db_path
 
 
-def test_league_fixtures_returns_every_upcoming_match_no_limit(tmp_path: Path) -> None:
+def test_league_fixtures_caps_at_the_soonest_10(tmp_path: Path) -> None:
     db_path = build_league_fixtures_db(tmp_path)
     con = duckdb.connect(str(db_path))
-    # 11 upcoming rows -- more than the old 10-row cap other queries use,
-    # to prove this one is genuinely uncapped, not just a bigger fixed limit.
+    # 11 upcoming rows, inserted out of chronological order -- one more
+    # than the cap, to prove LIMIT keeps the 10 SOONEST (via the existing
+    # ORDER BY), not just an arbitrary 10 of the 11.
     values = ",\n".join(
         f"({i}, 'PL', 2502, '2026-09-{10 + i:02d} 15:00:00', true, 'SCHEDULED', 1, 2,"
         " null, null)"
@@ -979,7 +1124,8 @@ def test_league_fixtures_returns_every_upcoming_match_no_limit(tmp_path: Path) -
 
     rows = get_league_fixtures(con, "PL", 2502)
 
-    assert len(rows) == 11
+    assert len(rows) == 10
+    assert list(rows["match_id"]) == list(range(10))  # the 10 with the earliest kickoffs
 
 
 def test_league_fixtures_excludes_finished_matches(tmp_path: Path) -> None:
@@ -1020,13 +1166,27 @@ def test_league_fixtures_orders_soonest_first_and_includes_crests(tmp_path: Path
     assert list(rows["match_id"]) == [2, 1]
 
 
-def test_league_recent_results_returns_every_finished_match_no_limit(
-    tmp_path: Path,
-) -> None:
+def test_league_fixtures_includes_status(tmp_path: Path) -> None:
     db_path = build_league_fixtures_db(tmp_path)
     con = duckdb.connect(str(db_path))
-    # 11 finished rows -- one more than the old 10-row window other pages
-    # use, to prove this is genuinely uncapped.
+    con.execute("""
+        insert into main.fct_matches values
+            (1, 'PL', 2502, '2026-09-22 15:00:00', true, 'TIMED', 1, 2, null, null)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_league_fixtures(con, "PL", 2502)
+
+    assert rows.iloc[0]["status"] == "TIMED"
+
+
+def test_league_recent_results_caps_at_the_most_recent_10(tmp_path: Path) -> None:
+    db_path = build_league_fixtures_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    # 11 finished rows -- one more than the cap, to prove LIMIT keeps the
+    # 10 MOST RECENT (via the existing ORDER BY ... desc), not an
+    # arbitrary 10 of the 11.
     values = ",\n".join(
         f"({i}, 'PL', 2502, '2026-09-{i:02d} 15:00:00', true, 'FINISHED', 1, 2,"
         " null, null)"
@@ -1038,7 +1198,8 @@ def test_league_recent_results_returns_every_finished_match_no_limit(
 
     rows = get_league_recent_results(con, "PL", 2502)
 
-    assert len(rows) == 11
+    assert len(rows) == 10
+    assert list(rows["match_id"]) == list(range(11, 1, -1))  # matches 11..2, newest first
 
 
 def test_league_recent_results_excludes_upcoming_matches(tmp_path: Path) -> None:
@@ -1313,14 +1474,17 @@ def build_season_archive_db(tmp_path: Path) -> Path:
         create table main.dim_seasons (
             season_id bigint, competition_code varchar, start_date date, end_date date
         );
-        create table main.dim_teams (team_id bigint, team_name varchar);
+        create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
         create table main.mart_standings_over_time (
             team_id bigint, competition_code varchar, season_id bigint, group_name varchar,
             matchday bigint, cumulative_points bigint, cumulative_goal_difference bigint,
             cumulative_goals_for bigint, position bigint
         );
         insert into main.dim_teams values
-            (1, 'Team A'), (2, 'Team B'), (3, 'Team C'), (4, 'Team D');
+            (1, 'Team A', 'https://crests.football-data.org/1.png'),
+            (2, 'Team B', 'https://crests.football-data.org/2.png'),
+            (3, 'Team C', 'https://crests.football-data.org/3.png'),
+            (4, 'Team D', 'https://crests.football-data.org/4.png');
         insert into main.dim_seasons values
             (2403, 'PL', '2025-08-15', '2026-05-24'),
             (2502, 'PL', '2026-08-21', '2027-05-30'),
@@ -1437,6 +1601,22 @@ def test_reconstructed_standings_keeps_each_groups_own_position_and_final_matchd
         f"GROUP_B should have points {{7, 4}} from matchday 3, got {set(group_b_rows['points'])}"
     assert set(group_b_rows.loc[group_b_rows["position"] == 1, "team_name"]) == {"Team C"}
     assert set(group_b_rows.loc[group_b_rows["position"] == 2, "team_name"]) == {"Team D"}
+
+
+def test_reconstructed_standings_includes_team_id_and_crest(tmp_path: Path) -> None:
+    db_path = build_season_archive_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.mart_standings_over_time values
+            (1, 'PL', 2403, null, 1, 3, 2, 3, 1)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_reconstructed_final_standings(con, "PL", 2403)
+
+    assert rows.iloc[0]["team_id"] == 1
+    assert rows.iloc[0]["crest"] == "https://crests.football-data.org/1.png"
 
 
 def test_reconstructed_standings_is_empty_when_the_season_has_no_data(
@@ -1638,13 +1818,16 @@ def build_team_matches_db(tmp_path: Path) -> Path:
             match_id bigint, kickoff_utc timestamp, kickoff_time_confirmed boolean
         );
         create table main.dim_teams (team_id bigint, team_name varchar, crest varchar);
-        create table main.dim_competitions (competition_code varchar, competition_name varchar);
+        create table main.dim_competitions (
+            competition_code varchar, competition_name varchar, emblem varchar
+        );
         insert into main.dim_teams values
             (1, 'Team A', 'https://crests.football-data.org/1.png'),
             (2, 'Team B', 'https://crests.football-data.org/2.png'),
             (3, 'Team C', 'https://crests.football-data.org/3.png');
         insert into main.dim_competitions values
-            ('PL', 'Premier League'), ('CL', 'UEFA Champions League')
+            ('PL', 'Premier League', 'https://crests.football-data.org/PL.png'),
+            ('CL', 'UEFA Champions League', 'https://crests.football-data.org/CL.png')
     """)
     con.close()
     return db_path
@@ -1761,6 +1944,24 @@ def test_team_upcoming_excludes_finished_matches(tmp_path: Path) -> None:
     rows = get_team_upcoming(con, 1)
 
     assert len(rows) == 1
+
+
+def test_team_upcoming_includes_status_and_competition_emblem(tmp_path: Path) -> None:
+    db_path = build_team_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_team_matches values
+            (1, 'PL', 2502, '2026-10-01', 'SCHEDULED', null, 1, 2, true, null, null, null);
+        insert into main.fct_matches values
+            (1, '2026-10-01 15:00:00', true)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_upcoming(con, 1)
+
+    assert rows.iloc[0]["status"] == "SCHEDULED"
+    assert rows.iloc[0]["competition_emblem"] == "https://crests.football-data.org/PL.png"
 
 
 def build_players_directory_db(tmp_path: Path) -> Path:

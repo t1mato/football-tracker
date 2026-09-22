@@ -101,6 +101,12 @@ def client(tmp_path: Path) -> TestClient:
              1, 20, 15, 3, 2, 40, 15, 25, 48, 'WWDWL')
     """)
     con.execute("""
+        create table mart_team_form (
+            team_id bigint, competition_code varchar, season_id bigint,
+            last_5_results varchar
+        )
+    """)
+    con.execute("""
         create table mart_standings_over_time (
             competition_code varchar, season_id bigint, team_id bigint,
             group_name varchar, matchday integer, position integer,
@@ -111,16 +117,6 @@ def client(tmp_path: Path) -> TestClient:
     con.execute("""
         insert into mart_standings_over_time values
             ('PL', 2526, 1, NULL, 20, 1, 48, 25, 40)
-    """)
-    con.execute("""
-        create table mart_streaks (
-            team_id bigint, competition_code varchar,
-            current_win_streak integer, current_unbeaten_streak integer,
-            longest_win_streak integer, longest_unbeaten_streak integer
-        )
-    """)
-    con.execute("""
-        insert into mart_streaks values (1, 'PL', 3, 5, 8, 10)
     """)
     con.execute("""
         create table mart_head_to_head (
@@ -207,25 +203,6 @@ def test_position_history_returns_matchday_series(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body == [{"matchday": 20, "position": 1}]
-
-
-def test_team_streaks_returns_the_teams_row(client: TestClient) -> None:
-    response = client.get("/api/teams/1/streaks", params={"league": "PL"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["message"] is None
-    assert body["streaks"]["current_win_streak"] == 3
-    assert body["streaks"]["longest_unbeaten_streak"] == 10
-
-
-def test_team_streaks_message_when_team_has_none(client: TestClient) -> None:
-    response = client.get("/api/teams/3/streaks", params={"league": "PL"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["streaks"] is None
-    assert "No streak data available" in body["message"]
 
 
 def test_head_to_head_returns_the_record_regardless_of_id_order(client: TestClient) -> None:

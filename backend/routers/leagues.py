@@ -16,6 +16,7 @@ from warehouse.queries import (
     get_cross_league_stats,
     get_current_season_id,
     get_league_fixtures,
+    get_league_position_history,
     get_league_recent_results,
     get_match_detail,
     get_reconstructed_final_standings,
@@ -109,3 +110,10 @@ def streaks(
     code: str, con: Annotated[ConnectionLike, Depends(get_con)]
 ) -> list[dict[str, object]]:
     return records(get_streaks(con, code))
+
+
+@router.get("/api/leagues/{code}/position-history")
+def position_history(
+    code: str, season: int, con: Annotated[ConnectionLike, Depends(get_con)]
+) -> list[dict[str, object]]:
+    return records(get_league_position_history(con, code, season))

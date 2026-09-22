@@ -241,13 +241,26 @@ def get_standings(
             "there's no season-long position to rank.",
         )
 
+    # f.form (football-data.org's own per-team form string) is selected
+    # nowhere below -- checked directly against the real warehouse and it
+    # is NULL on every single row there, apparently not populated on the
+    # free tier's standings endpoint. mart_team_form.last_5_results is
+    # computed locally from match results instead (see its own model
+    # comment for the oldest-to-newest, left-to-right convention) and is
+    # real, non-null data -- confirmed against the live warehouse before
+    # relying on it, not assumed from the column existing.
     table = _con.execute(
         """
         select f.position, t.team_name, t.crest, f.played_games, f.won, f.draw,
-               f.lost, f.goals_for, f.goals_against, f.goal_difference, f.points, f.form,
+               f.lost, f.goals_for, f.goals_against, f.goal_difference, f.points,
+               mtf.last_5_results as form,
                t.team_id
         from fct_standings_snapshot f
         join dim_teams t on f.team_id = t.team_id
+        left join mart_team_form mtf
+          on mtf.team_id = f.team_id
+         and mtf.competition_code = f.competition_code
+         and mtf.season_id = f.season_id
         where f.competition_code = ? and f.season_id = ? and f.snapshot_date = ?
           and f.stage = ? and f.table_type = 'TOTAL'
         order by f.position
@@ -260,14 +273,14 @@ def get_standings(
 def get_league_fixtures(
     _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
-    """Every upcoming fixture for a competition/season, no limit -- the
-    League popup's Fixtures tab shows everything, unlike
-    get_upcoming_matches' fixed 10-row window for the old Competition Hub
-    page.
+    """The 10 soonest upcoming fixtures for a competition/season -- the
+    League popup's Fixtures tab. Capped at the UI layer's request (a full
+    remaining-season list ran to dozens of rows); ORDER BY before LIMIT
+    makes "soonest 10", not an arbitrary 10.
     """
     return _con.execute(
         f"""
-        select f.match_id, f.kickoff_utc, f.kickoff_time_confirmed,
+        select f.match_id, f.kickoff_utc, f.kickoff_time_confirmed, f.status,
                ht.team_name as home_team_name, ht.crest as home_crest,
                aw.team_name as away_team_name, aw.crest as away_crest
         from fct_matches f
@@ -276,6 +289,7 @@ def get_league_fixtures(
         where f.competition_code = ? and f.season_id = ?
           and f.status in ('{"', '".join(_UPCOMING_STATUSES)}')
         order by f.kickoff_utc asc
+        limit 10
         """,  # nosec B608 -- only the hardcoded _UPCOMING_STATUSES constant
         # is interpolated; competition_code/season_id are bound via ?.
         [competition_code, season_id],
@@ -285,10 +299,10 @@ def get_league_fixtures(
 def get_league_recent_results(
     _con: ConnectionLike, competition_code: str, season_id: int
 ) -> pd.DataFrame:
-    """Every finished match for a competition/season, no limit -- the
+    """The 10 most recent finished matches for a competition/season -- the
     League popup's Recent Results tab, mirroring get_league_fixtures'
-    exact shape but for FINISHED/AWARDED matches with scores instead of
-    upcoming ones.
+    exact shape (and same 10-row cap) but for FINISHED/AWARDED matches
+    with scores instead of upcoming ones.
     """
     return _con.execute(
         f"""
@@ -302,6 +316,7 @@ def get_league_recent_results(
         where f.competition_code = ? and f.season_id = ?
           and f.status in ('{"', '".join(_FINISHED_STATUSES)}')
         order by f.kickoff_utc desc
+        limit 10
         """,  # nosec B608 -- only the hardcoded _FINISHED_STATUSES constant
         # is interpolated; competition_code/season_id are bound via ?.
         [competition_code, season_id],
@@ -349,6 +364,11 @@ def get_top_scorers(
     across reruns, and two players sharing a rank would otherwise render
     in an arbitrary order (same class of concern get_standings' own
     ORDER BY comment already flags).
+
+    QUALIFY rank <= 10 caps the Leaders/Golden Boot tab at the top 10 --
+    ties-inclusive (a 4-way tie at rank 10 keeps all four), consistent
+    with rank()'s own gap-preserving semantics rather than an arbitrary
+    "first 10 rows" LIMIT that would cut one of a tied group.
     """
     return _con.execute(
         """
@@ -363,6 +383,7 @@ def get_top_scorers(
         from fct_scorers s
         left join dim_teams t on s.team_id = t.team_id
         where s.competition_code = ? and s.season_id = ?
+        qualify rank <= 10
         order by rank, s.player_name
         """,
         [competition_code, season_id],
@@ -505,6 +526,28 @@ def get_team_position_history(
         order by matchday asc
         """,
         [team_id, competition_code, season_id],
+    ).df()
+
+
+def get_league_position_history(
+    _con: ConnectionLike, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """Every team's position by matchday for a competition/season -- the
+    bump chart on a team's own page, which needs the whole league's
+    movement (faded background lines), not just the one team
+    get_team_position_history already covers.
+
+    May legitimately be empty, same reasoning as get_team_position_history.
+    """
+    return _con.execute(
+        """
+        select m.team_id, t.team_name, t.crest, m.matchday, m.position
+        from mart_standings_over_time m
+        join dim_teams t on m.team_id = t.team_id
+        where m.competition_code = ? and m.season_id = ?
+        order by m.matchday asc, m.position asc
+        """,
+        [competition_code, season_id],
     ).df()
 
 
@@ -672,7 +715,9 @@ def get_reconstructed_final_standings(
         select
             m.group_name,
             m.position,
+            t.team_id,
             t.team_name,
+            t.crest,
             m.cumulative_points as points,
             m.cumulative_goal_difference as goal_difference,
             m.cumulative_goals_for as goals_for
@@ -830,8 +875,8 @@ def get_team_upcoming(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
     """
     return _con.execute(
         """
-        select m.kickoff_utc, m.kickoff_time_confirmed, t.team_name as opponent_team_name,
-               t.crest as opponent_crest, c.competition_name,
+        select m.kickoff_utc, m.kickoff_time_confirmed, f.status, t.team_name as opponent_team_name,
+               t.crest as opponent_crest, c.competition_name, c.emblem as competition_emblem,
                f.goals_for, f.goals_against, f.result
         from fct_team_matches f
         left join fct_matches m on f.match_id = m.match_id

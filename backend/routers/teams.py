@@ -15,7 +15,6 @@ from warehouse.queries import (
     get_head_to_head,
     get_head_to_head_matches,
     get_standings,
-    get_streaks,
     get_team_position_history,
     get_team_recent_form,
     get_team_upcoming,
@@ -74,20 +73,6 @@ def team_position_history(
     team_id: int, league: str, season: int, con: Annotated[ConnectionLike, Depends(get_con)]
 ) -> list[dict[str, object]]:
     return records(get_team_position_history(con, team_id, league, season))
-
-
-@router.get("/api/teams/{team_id}/streaks")
-def team_streaks(
-    team_id: int, league: str, con: Annotated[ConnectionLike, Depends(get_con)]
-) -> dict[str, object]:
-    streaks = get_streaks(con, league)
-    row = streaks[streaks["team_id"] == team_id]
-    if row.empty:
-        return {
-            "streaks": None,
-            "message": "No streak data available for this team in this league yet.",
-        }
-    return {"streaks": record(row.iloc[0]), "message": None}
 
 
 @router.get("/api/teams/{team_id}/head-to-head/{opponent_id}")

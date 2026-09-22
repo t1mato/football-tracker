@@ -92,6 +92,12 @@ def client(tmp_path: Path) -> TestClient:
              1, 20, 15, 3, 2, 40, 15, 25, 48, 'WWDWL')
     """)
     con.execute("""
+        create table mart_team_form (
+            team_id bigint, competition_code varchar, season_id bigint,
+            last_5_results varchar
+        )
+    """)
+    con.execute("""
         create table mart_standings_over_time (
             competition_code varchar, season_id bigint, team_id bigint,
             group_name varchar, matchday integer, position integer,
@@ -232,3 +238,14 @@ def test_streaks_returns_the_team_streak_row(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body[0]["current_win_streak"] == 3
+
+
+def test_position_history_returns_every_teams_matchday_positions(client: TestClient) -> None:
+    response = client.get("/api/leagues/PL/position-history?season=2425")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body[0]["team_name"] == "Team A"
+    assert body[0]["matchday"] == 38
+    assert body[0]["position"] == 3
+    assert body[0]["crest"] == "a.png"
