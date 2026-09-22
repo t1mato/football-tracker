@@ -4,6 +4,7 @@ export interface MatchRow {
   match_id: number
   kickoff_utc: string
   kickoff_time_confirmed: boolean
+  status?: string
   home_team_name: string
   home_crest: string | null
   away_team_name: string

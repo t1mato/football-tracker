@@ -3,9 +3,11 @@ import { useQuery } from '@tanstack/react-query'
 export interface TeamMatchRow {
   kickoff_utc: string
   kickoff_time_confirmed: boolean
+  status?: string
   opponent_team_name: string
   opponent_crest: string | null
   competition_name: string
+  competition_emblem?: string | null
   goals_for: number | null
   goals_against: number | null
   result: string | null

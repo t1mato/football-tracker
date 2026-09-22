@@ -1,13 +1,15 @@
 import { useTeamUpcoming } from '../../hooks/useTeamMatches'
-import { formatKickoff } from '../../lib/formatKickoff'
 import { ErrorMessage } from '../ErrorMessage'
+import { FixtureCard } from '../FixtureCard'
 
 interface TeamFixturesTabProps {
   teamId: number | null
+  teamName?: string
+  teamCrest?: string | null
   active: boolean
 }
 
-export function TeamFixturesTab({ teamId, active }: TeamFixturesTabProps) {
+export function TeamFixturesTab({ teamId, teamName, teamCrest, active }: TeamFixturesTabProps) {
   const { data, isLoading, error } = useTeamUpcoming(teamId, active)
 
   if (!active) return null
@@ -16,31 +18,21 @@ export function TeamFixturesTab({ teamId, active }: TeamFixturesTabProps) {
   if (!data || data.length === 0) return <p>No upcoming fixtures scheduled.</p>
 
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr className="text-left text-text-muted text-xs uppercase">
-          <th>Kickoff (UTC)</th>
-          <th>Opponent</th>
-          <th>Competition</th>
-        </tr>
-      </thead>
-      <tbody>
-        {data.map((row) => (
-          <tr
-            key={`${row.kickoff_utc}-${row.opponent_team_name}`}
-            className="border-t border-line"
-          >
-            <td>{formatKickoff(row.kickoff_utc, row.kickoff_time_confirmed)}</td>
-            <td className="flex items-center gap-2 py-1.5">
-              {row.opponent_crest && (
-                <img src={row.opponent_crest} alt="" className="w-5 h-5 object-contain" />
-              )}
-              {row.opponent_team_name}
-            </td>
-            <td>{row.competition_name}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="flex flex-col gap-4">
+      {data.map((row) => (
+        <FixtureCard
+          key={`${row.kickoff_utc}-${row.opponent_team_name}`}
+          homeTeamName={teamName ?? 'This club'}
+          homeCrest={teamCrest ?? null}
+          awayTeamName={row.opponent_team_name}
+          awayCrest={row.opponent_crest}
+          kickoffUtc={row.kickoff_utc}
+          kickoffTimeConfirmed={row.kickoff_time_confirmed}
+          status={row.status}
+          competitionName={row.competition_name}
+          competitionEmblem={row.competition_emblem}
+        />
+      ))}
+    </div>
   )
 }
