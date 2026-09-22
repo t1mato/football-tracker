@@ -12,6 +12,7 @@ export interface StandingsRow {
   goals_against: number
   goal_difference: number
   points: number
+  form: string | null
   team_id: number
 }
 
@@ -37,7 +38,9 @@ export function useStandings(code: string, season: number | undefined, enabled: 
 export interface ReconstructedRow {
   group_name: string | null
   position: number
+  team_id: number
   team_name: string
+  crest: string | null
   points: number
   goal_difference: number
   goals_for: number
