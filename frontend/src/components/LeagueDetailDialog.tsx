@@ -7,15 +7,18 @@ import { RecentResultsTab } from './tabs/RecentResultsTab'
 import { FixturesTab } from './tabs/FixturesTab'
 import { LeadersTab } from './tabs/LeadersTab'
 import { StreaksTab } from './tabs/StreaksTab'
+import { LeaguePositionBumpChart } from './tabs/LeaguePositionBumpChart'
 
 interface LeagueDetailDialogProps {
   competitionCode: string | null
   competitionName?: string
+  competitionEmblem?: string | null
   onClose: () => void
 }
 
 const TABS = [
   { value: 'table', label: 'Table' },
+  { value: 'movement', label: 'Movement' },
   { value: 'results', label: 'Recent Results' },
   { value: 'fixtures', label: 'Fixtures' },
   { value: 'leaders', label: 'Leaders' },
@@ -25,6 +28,7 @@ const TABS = [
 export function LeagueDetailDialog({
   competitionCode,
   competitionName,
+  competitionEmblem,
   onClose,
 }: LeagueDetailDialogProps) {
   const [activeTab, setActiveTab] = useState('table')
@@ -48,6 +52,7 @@ export function LeagueDetailDialog({
       open={isOpen}
       onOpenChange={(open) => !open && onClose()}
       title={competitionName ?? competitionCode ?? ''}
+      titleIcon={competitionEmblem}
       tabs={TABS}
       activeTab={activeTab}
       onTabChange={setActiveTab}
@@ -67,7 +72,7 @@ export function LeagueDetailDialog({
         ) : undefined
       }
     >
-      <Tabs.Content value="table" className="pt-4">
+      <Tabs.Content value="table" className="pt-6">
         <StandingsTab
           competitionCode={code}
           seasonId={seasonId}
@@ -75,28 +80,35 @@ export function LeagueDetailDialog({
           active={activeTab === 'table'}
         />
       </Tabs.Content>
-      <Tabs.Content value="results" className="pt-4">
+      <Tabs.Content value="movement" className="pt-6">
+        <LeaguePositionBumpChart
+          competitionCode={code}
+          seasonId={seasonId}
+          active={activeTab === 'movement'}
+        />
+      </Tabs.Content>
+      <Tabs.Content value="results" className="pt-6">
         <RecentResultsTab
           competitionCode={code}
           seasonId={seasonId}
           active={activeTab === 'results'}
         />
       </Tabs.Content>
-      <Tabs.Content value="fixtures" className="pt-4">
+      <Tabs.Content value="fixtures" className="pt-6">
         <FixturesTab
           competitionCode={code}
           seasonId={seasonId}
           active={activeTab === 'fixtures'}
         />
       </Tabs.Content>
-      <Tabs.Content value="leaders" className="pt-4">
+      <Tabs.Content value="leaders" className="pt-6">
         <LeadersTab
           competitionCode={code}
           seasonId={seasonId}
           active={activeTab === 'leaders'}
         />
       </Tabs.Content>
-      <Tabs.Content value="streaks" className="pt-4">
+      <Tabs.Content value="streaks" className="pt-6">
         <StreaksTab
           competitionCode={code}
           currentSeasonId={currentSeasonId}

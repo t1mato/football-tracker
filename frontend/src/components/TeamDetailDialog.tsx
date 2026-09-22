@@ -5,7 +5,6 @@ import { FormTab } from './tabs/FormTab'
 import { TeamFixturesTab } from './tabs/TeamFixturesTab'
 import { StatsTab } from './tabs/StatsTab'
 import { PositionTab } from './tabs/PositionTab'
-import { TeamStreaksTab } from './tabs/TeamStreaksTab'
 import { CompareTab } from './tabs/CompareTab'
 
 interface TeamDetailDialogProps {
@@ -22,7 +21,6 @@ const TABS = [
   { value: 'fixtures', label: 'Fixtures' },
   { value: 'stats', label: 'Stats' },
   { value: 'position', label: 'Position' },
-  { value: 'streaks', label: 'Streaks' },
   { value: 'compare', label: 'Compare vs...' },
 ]
 
@@ -50,22 +48,23 @@ export function TeamDetailDialog({
       open={isOpen}
       onOpenChange={(open) => !open && onClose()}
       title={teamName ?? ''}
-      headerExtra={
-        teamCrest ? (
-          <img src={teamCrest} alt="" className="w-16 h-16 object-contain mt-2" />
-        ) : undefined
-      }
+      titleIcon={teamCrest}
       tabs={TABS}
       activeTab={activeTab}
       onTabChange={setActiveTab}
     >
-      <Tabs.Content value="form" className="pt-4">
+      <Tabs.Content value="form" className="pt-6">
         <FormTab teamId={teamId} active={activeTab === 'form'} />
       </Tabs.Content>
-      <Tabs.Content value="fixtures" className="pt-4">
-        <TeamFixturesTab teamId={teamId} active={activeTab === 'fixtures'} />
+      <Tabs.Content value="fixtures" className="pt-6">
+        <TeamFixturesTab
+          teamId={teamId}
+          teamName={teamName}
+          teamCrest={teamCrest}
+          active={activeTab === 'fixtures'}
+        />
       </Tabs.Content>
-      <Tabs.Content value="stats" className="pt-4">
+      <Tabs.Content value="stats" className="pt-6">
         <StatsTab
           teamId={teamId}
           leagueCode={leagueCode}
@@ -73,7 +72,7 @@ export function TeamDetailDialog({
           active={activeTab === 'stats'}
         />
       </Tabs.Content>
-      <Tabs.Content value="position" className="pt-4">
+      <Tabs.Content value="position" className="pt-6">
         <PositionTab
           teamId={teamId}
           leagueCode={leagueCode}
@@ -81,14 +80,7 @@ export function TeamDetailDialog({
           active={activeTab === 'position'}
         />
       </Tabs.Content>
-      <Tabs.Content value="streaks" className="pt-4">
-        <TeamStreaksTab
-          teamId={teamId}
-          leagueCode={leagueCode}
-          active={activeTab === 'streaks'}
-        />
-      </Tabs.Content>
-      <Tabs.Content value="compare" className="pt-4">
+      <Tabs.Content value="compare" className="pt-6">
         <CompareTab teamId={teamId} teamName={teamName} active={activeTab === 'compare'} />
       </Tabs.Content>
     </DetailDialog>

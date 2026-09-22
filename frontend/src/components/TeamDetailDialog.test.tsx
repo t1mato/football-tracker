@@ -16,7 +16,6 @@ describe('TeamDetailDialog', () => {
   let upcomingCallCount = 0
   let statsCallCount = 0
   let positionCallCount = 0
-  let streaksCallCount = 0
   let allTeamsCallCount = 0
 
   beforeEach(() => {
@@ -24,7 +23,6 @@ describe('TeamDetailDialog', () => {
     upcomingCallCount = 0
     statsCallCount = 0
     positionCallCount = 0
-    streaksCallCount = 0
     allTeamsCallCount = 0
     server.use(
       http.get('/api/teams/1/form', () => {
@@ -42,10 +40,6 @@ describe('TeamDetailDialog', () => {
       http.get('/api/teams/1/position-history', () => {
         positionCallCount++
         return HttpResponse.json([])
-      }),
-      http.get('/api/teams/1/streaks', () => {
-        streaksCallCount++
-        return HttpResponse.json({ streaks: null, message: 'No streaks yet' })
       }),
       http.get('/api/teams/all', () => {
         allTeamsCallCount++
@@ -134,24 +128,6 @@ describe('TeamDetailDialog', () => {
     await userEvent.click(await screen.findByRole('tab', { name: /position/i }))
 
     await waitFor(() => expect(positionCallCount).toBe(1))
-  })
-
-  it('fetches streaks only once the Streaks tab is clicked', async () => {
-    renderWithQueryClient(
-      <TeamDetailDialog
-        teamId={1}
-        teamName="Test United"
-        leagueCode="PL"
-        leagueSeasonId={2526}
-        onClose={() => {}}
-      />
-    )
-    await waitFor(() => expect(formCallCount).toBe(1))
-    expect(streaksCallCount).toBe(0)
-
-    await userEvent.click(await screen.findByRole('tab', { name: /streaks/i }))
-
-    await waitFor(() => expect(streaksCallCount).toBe(1))
   })
 
   it('fetches the opponent list only once the Compare tab is clicked', async () => {

@@ -22,6 +22,7 @@ describe('LeagueDetailDialog', () => {
   let scorersCallCount = 0
   let streaksCallCount = 0
   let teamsInSeasonCallCount = 0
+  let positionHistoryCallCount = 0
 
   beforeEach(() => {
     standingsCallCount = 0
@@ -30,6 +31,7 @@ describe('LeagueDetailDialog', () => {
     scorersCallCount = 0
     streaksCallCount = 0
     teamsInSeasonCallCount = 0
+    positionHistoryCallCount = 0
     server.use(
       http.get('/api/leagues/PL/seasons', () =>
         HttpResponse.json([{ season_id: 2526, start_date: '2025-08-01', end_date: '2026-05-31' }])
@@ -59,6 +61,10 @@ describe('LeagueDetailDialog', () => {
       }),
       http.get('/api/leagues/PL/teams-in-season', () => {
         teamsInSeasonCallCount++
+        return HttpResponse.json([])
+      }),
+      http.get('/api/leagues/PL/position-history', () => {
+        positionHistoryCallCount++
         return HttpResponse.json([])
       })
     )
@@ -128,5 +134,17 @@ describe('LeagueDetailDialog', () => {
 
     await waitFor(() => expect(streaksCallCount).toBe(1))
     await waitFor(() => expect(teamsInSeasonCallCount).toBe(1))
+  })
+
+  it('fetches position history only once the Movement tab is clicked', async () => {
+    renderWithQueryClient(
+      <LeagueDetailDialog competitionCode="PL" competitionName="Premier League" onClose={() => {}} />
+    )
+    await waitFor(() => expect(standingsCallCount).toBe(1))
+    expect(positionHistoryCallCount).toBe(0)
+
+    await userEvent.click(await screen.findByRole('tab', { name: /movement/i }))
+
+    await waitFor(() => expect(positionHistoryCallCount).toBe(1))
   })
 })
