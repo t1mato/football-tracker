@@ -2,7 +2,6 @@ import { useState } from 'react'
 import { useCompetitions } from '../hooks/useCompetitions'
 import { LeagueCard } from '../components/LeagueCard'
 import { LeagueDetailDialog } from '../components/LeagueDetailDialog'
-import { CrossLeagueDashboard } from '../components/CrossLeagueDashboard'
 import { Frame } from '../components/Frame'
 
 export function Leagues() {
@@ -34,10 +33,6 @@ export function Leagues() {
         competitionEmblem={openCompetition?.emblem}
         onClose={() => setOpenCode(null)}
       />
-      <div>
-        <h2 className="font-display text-3xl uppercase mb-4">Cross-League Dashboard</h2>
-        <CrossLeagueDashboard />
-      </div>
     </div>
   )
 }

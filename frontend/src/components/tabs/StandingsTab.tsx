@@ -38,38 +38,38 @@ export function StandingsTab({
         <table className="w-full text-lg">
           <thead>
             <tr className="text-left text-text-muted text-base uppercase">
-              <th className="pb-3">#</th>
-              <th className="pb-3">Club</th>
-              <th className="pb-3 text-center">P</th>
-              <th className="pb-3 text-center">W</th>
-              <th className="pb-3 text-center">D</th>
-              <th className="pb-3 text-center">L</th>
-              <th className="pb-3 text-center">GD</th>
-              <th className="pb-3 text-center">Pts</th>
-              <th className="pb-3 text-center">Form</th>
+              <th className="pb-3 px-2">#</th>
+              <th className="pb-3 px-2">Club</th>
+              <th className="pb-3 px-2 text-center">P</th>
+              <th className="pb-3 px-2 text-center">W</th>
+              <th className="pb-3 px-2 text-center">D</th>
+              <th className="pb-3 px-2 text-center">L</th>
+              <th className="pb-3 px-2 text-center">GD</th>
+              <th className="pb-3 px-2 text-center">Pts</th>
+              <th className="pb-3 px-2 text-center">Form</th>
             </tr>
           </thead>
           <tbody>
             {current.data.table.map((row) => (
               <tr key={row.team_id} className="border-t border-line">
-                <td className="py-3">
+                <td className="py-3 px-2">
                   <PositionBadge competitionCode={competitionCode} position={row.position} />
                 </td>
-                <td className="flex items-center gap-2.5 py-3">
+                <td className="flex items-center gap-2.5 py-3 px-2">
                   {row.crest && <img src={row.crest} alt="" className="w-6 h-6 object-contain" />}
                   {row.team_name}
                 </td>
-                <td className="text-center">{row.played_games}</td>
-                <td className="text-center">{row.won}</td>
-                <td className="text-center">{row.draw}</td>
-                <td className="text-center">{row.lost}</td>
+                <td className="px-2 text-center">{row.played_games}</td>
+                <td className="px-2 text-center">{row.won}</td>
+                <td className="px-2 text-center">{row.draw}</td>
+                <td className="px-2 text-center">{row.lost}</td>
                 <td
-                  className={`text-center font-semibold ${row.goal_difference > 0 ? 'text-green' : row.goal_difference < 0 ? 'text-red' : ''}`}
+                  className={`px-2 text-center font-semibold ${row.goal_difference > 0 ? 'text-green' : row.goal_difference < 0 ? 'text-red' : ''}`}
                 >
                   {formatGoalDifference(row.goal_difference)}
                 </td>
-                <td className="text-center font-semibold">{row.points}</td>
-                <td className="text-center">
+                <td className="px-2 text-center font-semibold">{row.points}</td>
+                <td className="px-2 text-center">
                   <FormGuide form={row.form} />
                 </td>
               </tr>
@@ -90,24 +90,24 @@ export function StandingsTab({
     <table className="w-full text-lg">
       <thead>
         <tr className="text-left text-text-muted text-base uppercase">
-          <th className="pb-3">#</th>
-          <th className="pb-3">Club</th>
-          <th className="pb-3 text-center">Pts</th>
-          <th className="pb-3 text-center">GD</th>
-          <th className="pb-3 text-center">GF</th>
+          <th className="pb-3 px-2">#</th>
+          <th className="pb-3 px-2">Club</th>
+          <th className="pb-3 px-2 text-center">Pts</th>
+          <th className="pb-3 px-2 text-center">GD</th>
+          <th className="pb-3 px-2 text-center">GF</th>
         </tr>
       </thead>
       <tbody>
         {reconstructed.data.map((row) => (
           <tr key={`${row.group_name ?? ''}-${row.position}`} className="border-t border-line">
-            <td className="py-3">{row.position}</td>
-            <td className="flex items-center gap-2.5 py-3">
+            <td className="py-3 px-2">{row.position}</td>
+            <td className="flex items-center gap-2.5 py-3 px-2">
               {row.crest && <img src={row.crest} alt="" className="w-6 h-6 object-contain" />}
               {row.team_name}
             </td>
-            <td className="text-center font-semibold">{row.points}</td>
-            <td className="text-center">{formatGoalDifference(row.goal_difference)}</td>
-            <td className="text-center">{row.goals_for}</td>
+            <td className="px-2 text-center font-semibold">{row.points}</td>
+            <td className="px-2 text-center">{formatGoalDifference(row.goal_difference)}</td>
+            <td className="px-2 text-center">{row.goals_for}</td>
           </tr>
         ))}
       </tbody>

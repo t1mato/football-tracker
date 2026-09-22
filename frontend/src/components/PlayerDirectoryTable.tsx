@@ -76,11 +76,11 @@ export function PlayerDirectoryTable({ onSelectPlayer }: PlayerDirectoryTablePro
           <table className="w-full text-lg">
             <thead>
               <tr className="text-left text-text-muted text-base uppercase">
-                <th className="pb-3"></th>
-                <th className="pb-3">Player</th>
-                <th className="pb-3">Position</th>
-                <th className="pb-3">Nationality</th>
-                <th className="pb-3">Club</th>
+                <th className="pb-3 px-2"></th>
+                <th className="pb-3 px-2">Player</th>
+                <th className="pb-3 px-2">Position</th>
+                <th className="pb-3 px-2">Nationality</th>
+                <th className="pb-3 px-2">Club</th>
               </tr>
             </thead>
             <tbody>
@@ -90,13 +90,13 @@ export function PlayerDirectoryTable({ onSelectPlayer }: PlayerDirectoryTablePro
                   onClick={() => onSelectPlayer(p.player_id)}
                   className="border-t border-line cursor-pointer hover:bg-surface-2"
                 >
-                  <td className="py-3">
+                  <td className="py-3 px-2">
                     {p.crest && <img src={p.crest} alt="" className="w-6 h-6 object-contain" />}
                   </td>
-                  <td>{p.player_name}</td>
-                  <td>{p.position ?? '—'}</td>
-                  <td>{p.nationality ?? '—'}</td>
-                  <td>{p.team_name ?? '—'}</td>
+                  <td className="px-2">{p.player_name}</td>
+                  <td className="px-2">{p.position ?? '—'}</td>
+                  <td className="px-2">{p.nationality ?? '—'}</td>
+                  <td className="px-2">{p.team_name ?? '—'}</td>
                 </tr>
               ))}
             </tbody>

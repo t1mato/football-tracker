@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useLeagueResults } from '../../hooks/useLeagueMatches'
 import { MatchDetailPanel } from '../MatchDetailPanel'
 import { ErrorMessage } from '../ErrorMessage'
-import { formatKickoff } from '../../lib/formatKickoff'
+import { FixtureCard } from '../FixtureCard'
 
 interface RecentResultsTabProps {
   competitionCode: string
@@ -20,39 +20,23 @@ export function RecentResultsTab({ competitionCode, seasonId, active }: RecentRe
   if (!data || data.length === 0) return <p>No results yet this season.</p>
 
   return (
-    <div>
-      <table className="w-full text-lg">
-        <tbody>
-          {data.map((match) => (
-            <tr
-              key={match.match_id}
-              className="border-t border-line cursor-pointer"
-              onClick={() =>
-                setExpandedMatchId(expandedMatchId === match.match_id ? null : match.match_id)
-              }
-            >
-              <td className="py-3 flex items-center gap-2.5">
-                {match.home_crest && (
-                  <img src={match.home_crest} alt="" className="w-6 h-6 object-contain" />
-                )}
-                {match.home_team_name}
-              </td>
-              <td className="text-center font-semibold">
-                {match.full_time_home}–{match.full_time_away}
-              </td>
-              <td className="flex items-center gap-2">
-                {match.away_crest && (
-                  <img src={match.away_crest} alt="" className="w-6 h-6 object-contain" />
-                )}
-                {match.away_team_name}
-              </td>
-              <td className="text-center text-text-muted">
-                {formatKickoff(match.kickoff_utc, match.kickoff_time_confirmed)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="flex flex-col gap-4">
+      {data.map((match) => (
+        <FixtureCard
+          key={match.match_id}
+          homeTeamName={match.home_team_name}
+          homeCrest={match.home_crest}
+          awayTeamName={match.away_team_name}
+          awayCrest={match.away_crest}
+          kickoffUtc={match.kickoff_utc}
+          kickoffTimeConfirmed={match.kickoff_time_confirmed}
+          fullTimeHome={match.full_time_home ?? null}
+          fullTimeAway={match.full_time_away ?? null}
+          onClick={() =>
+            setExpandedMatchId(expandedMatchId === match.match_id ? null : match.match_id)
+          }
+        />
+      ))}
       {expandedMatchId !== null && <MatchDetailPanel matchId={expandedMatchId} />}
     </div>
   )

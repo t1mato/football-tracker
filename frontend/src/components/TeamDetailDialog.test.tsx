@@ -37,6 +37,8 @@ describe('TeamDetailDialog', () => {
         statsCallCount++
         return HttpResponse.json({ stats: null, message: 'No stats yet' })
       }),
+      http.get('/api/teams/1/scorers', () => HttpResponse.json([])),
+      http.get('/api/teams/1/assists', () => HttpResponse.json([])),
       http.get('/api/teams/1/position-history', () => {
         positionCallCount++
         return HttpResponse.json([])

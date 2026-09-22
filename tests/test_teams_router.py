@@ -128,6 +128,19 @@ def client(tmp_path: Path) -> TestClient:
     con.execute("""
         insert into mart_head_to_head values (1, 2, 3, 2, 1, 0, 5, 3)
     """)
+    con.execute("""
+        create table fct_scorers (
+            player_id bigint, competition_code varchar, season_id bigint,
+            team_id bigint, team_name varchar, player_name varchar,
+            goals bigint, assists bigint, played_matches bigint,
+            penalties bigint
+        )
+    """)
+    con.execute("""
+        insert into fct_scorers values
+            (501, 'PL', 2526, 1, 'Team A', 'Team A Scorer', 12, 4, 20, 2),
+            (502, 'PL', 2526, 2, 'Team B', 'Team B Scorer', 3, 1, 18, 0)
+    """)
     con.close()
 
     app = create_app(db_path=db_path)
@@ -203,6 +216,26 @@ def test_position_history_returns_matchday_series(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body == [{"matchday": 20, "position": 1}]
+
+
+def test_team_scorers_returns_only_this_teams_players(client: TestClient) -> None:
+    response = client.get("/api/teams/1/scorers", params={"league": "PL", "season": 2526})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["player_name"] == "Team A Scorer"
+    assert body[0]["goals"] == 12
+
+
+def test_team_assists_returns_only_this_teams_players(client: TestClient) -> None:
+    response = client.get("/api/teams/1/assists", params={"league": "PL", "season": 2526})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert len(body) == 1
+    assert body[0]["player_name"] == "Team A Scorer"
+    assert body[0]["assists"] == 4
 
 
 def test_head_to_head_returns_the_record_regardless_of_id_order(client: TestClient) -> None:

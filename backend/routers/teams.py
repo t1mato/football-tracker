@@ -15,8 +15,10 @@ from warehouse.queries import (
     get_head_to_head,
     get_head_to_head_matches,
     get_standings,
+    get_team_assists,
     get_team_position_history,
     get_team_recent_form,
+    get_team_scorers,
     get_team_upcoming,
     get_teams_for_league,
 )
@@ -66,6 +68,20 @@ def team_stats(
             "message": "No season stats available for this team in this league yet.",
         }
     return {"stats": record(row.iloc[0]), "message": None}
+
+
+@router.get("/api/teams/{team_id}/scorers")
+def team_scorers(
+    team_id: int, league: str, season: int, con: Annotated[ConnectionLike, Depends(get_con)]
+) -> list[dict[str, object]]:
+    return records(get_team_scorers(con, team_id, league, season))
+
+
+@router.get("/api/teams/{team_id}/assists")
+def team_assists(
+    team_id: int, league: str, season: int, con: Annotated[ConnectionLike, Depends(get_con)]
+) -> list[dict[str, object]]:
+    return records(get_team_assists(con, team_id, league, season))
 
 
 @router.get("/api/teams/{team_id}/position-history")

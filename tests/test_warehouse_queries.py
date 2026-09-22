@@ -36,12 +36,15 @@ from warehouse.queries import (
     get_reconstructed_final_standings,
     get_standings,
     get_streaks,
+    get_team_assists,
     get_team_competitions,
     get_team_position_history,
     get_team_recent_form,
+    get_team_scorers,
     get_team_upcoming,
     get_teams_for_league,
     get_teams_in_season,
+    get_top_assists,
     get_top_scorers,
 )
 
@@ -1045,47 +1048,182 @@ def test_top_scorers_includes_team_crest(tmp_path: Path) -> None:
     assert rows.iloc[0]["crest"] == "https://crests.football-data.org/10.png"
 
 
-def test_top_scorers_caps_at_10_but_keeps_a_tie_spanning_the_boundary(
+def test_top_scorers_caps_at_20_but_keeps_a_tie_spanning_the_boundary(
     tmp_path: Path,
 ) -> None:
-    """QUALIFY rank <= 10, not LIMIT 10 -- a 4-way tie for rank 10 must
-    keep all four players, not arbitrarily cut it down to whichever 10
+    """QUALIFY rank <= 20, not LIMIT 20 -- a 4-way tie for rank 20 must
+    keep all four players, not arbitrarily cut it down to whichever 20
     rows the scan happened to return first.
     """
     db_path = build_scorers_db(tmp_path)
     con = duckdb.connect(str(db_path))
+    team_values = ", ".join(f"({i}, 'Team {i}', null)" for i in range(1, 25))
+    con.execute(f"insert into main.dim_teams values {team_values}")
+    # P1..P19 rank uniquely (goals 39 down to 21), P20-a/b/c/d tie at
+    # goals=20 (rank 20), and P21 (goals=5) must be excluded.
+    unique_rows = ", ".join(
+        f"('PL', 2502, {i}, 'P{i}', {i}, 'Team {i}', 5, {40 - i}, 0, 0)" for i in range(1, 20)
+    )
+    con.execute(f"insert into main.fct_scorers values {unique_rows}")
     con.execute("""
-        insert into main.dim_teams values
-            (1, 'Team 1', null), (2, 'Team 2', null), (3, 'Team 3', null),
-            (4, 'Team 4', null), (5, 'Team 5', null), (6, 'Team 6', null),
-            (7, 'Team 7', null), (8, 'Team 8', null), (9, 'Team 9', null),
-            (10, 'Team 10', null), (11, 'Team 11', null), (12, 'Team 12', null),
-            (13, 'Team 13', null);
         insert into main.fct_scorers values
-            ('PL', 2502, 1, 'P1', 1, 'Team 1', 5, 20, 0, 0),
-            ('PL', 2502, 2, 'P2', 2, 'Team 2', 5, 19, 0, 0),
-            ('PL', 2502, 3, 'P3', 3, 'Team 3', 5, 18, 0, 0),
-            ('PL', 2502, 4, 'P4', 4, 'Team 4', 5, 17, 0, 0),
-            ('PL', 2502, 5, 'P5', 5, 'Team 5', 5, 16, 0, 0),
-            ('PL', 2502, 6, 'P6', 6, 'Team 6', 5, 15, 0, 0),
-            ('PL', 2502, 7, 'P7', 7, 'Team 7', 5, 14, 0, 0),
-            ('PL', 2502, 8, 'P8', 8, 'Team 8', 5, 13, 0, 0),
-            ('PL', 2502, 9, 'P9', 9, 'Team 9', 5, 12, 0, 0),
-            ('PL', 2502, 10, 'P10-a', 10, 'Team 10', 5, 11, 0, 0),
-            ('PL', 2502, 11, 'P10-b', 11, 'Team 11', 5, 11, 0, 0),
-            ('PL', 2502, 12, 'P10-c', 12, 'Team 12', 5, 11, 0, 0),
-            ('PL', 2502, 13, 'P11', 13, 'Team 13', 5, 5, 0, 0)
+            ('PL', 2502, 20, 'P20-a', 20, 'Team 20', 5, 20, 0, 0),
+            ('PL', 2502, 21, 'P20-b', 21, 'Team 21', 5, 20, 0, 0),
+            ('PL', 2502, 22, 'P20-c', 22, 'Team 22', 5, 20, 0, 0),
+            ('PL', 2502, 23, 'P20-d', 23, 'Team 23', 5, 20, 0, 0),
+            ('PL', 2502, 24, 'P21', 24, 'Team 24', 5, 5, 0, 0)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
 
     rows = get_top_scorers(con, "PL", 2502)
 
-    # P1..P9 (rank 1-9) plus all three of the rank-10 tie (P10-a/b/c) --
-    # 12 rows total, none of the tied trio dropped. P11 (rank 12) excluded.
-    assert len(rows) == 12
-    assert "P11" not in set(rows["player_name"])
-    assert {"P10-a", "P10-b", "P10-c"} <= set(rows["player_name"])
+    # P1..P19 (rank 1-19) plus all four of the rank-20 tie (P20-a/b/c/d) --
+    # 23 rows total, none of the tied quartet dropped. P21 (rank 23) excluded.
+    assert len(rows) == 23
+    assert "P21" not in set(rows["player_name"])
+    assert {"P20-a", "P20-b", "P20-c", "P20-d"} <= set(rows["player_name"])
+
+
+def test_top_assists_sorts_by_assists_then_goals_then_fewer_matches(
+    tmp_path: Path,
+) -> None:
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png'),
+            (11, 'Team Y', 'https://crests.football-data.org/11.png'),
+            (12, 'Team Z', 'https://crests.football-data.org/12.png');
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 2, 8, 0),
+            ('PL', 2502, 2, 'Player B', 11, 'Team Y', 12, 3, 8, 0),
+            ('PL', 2502, 3, 'Player C', 12, 'Team Z', 15, 1, 5, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_assists(con, "PL", 2502)
+
+    # Player B leads on assists (8). Player A and Player C are next --
+    # ordered by assists (8 vs 5); Player C's own goals/matches never come
+    # into play here since assists alone already separates them.
+    assert list(rows["player_name"]) == ["Player B", "Player A", "Player C"]
+    assert list(rows["rank"]) == [1, 2, 3]
+
+
+def test_top_assists_treats_null_assists_as_zero(tmp_path: Path) -> None:
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png'),
+            (11, 'Team Y', 'https://crests.football-data.org/11.png');
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 0, null, 0),
+            ('PL', 2502, 2, 'Player B', 11, 'Team Y', 10, 0, 1, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_assists(con, "PL", 2502)
+
+    assert list(rows["player_name"]) == ["Player B", "Player A"]
+    a_row = rows[rows["player_name"] == "Player A"].iloc[0]
+    assert a_row["assists"] == 0
+    assert pd.notna(a_row["assists"])
+
+
+def test_top_assists_is_empty_when_the_competition_has_no_scorers_yet(
+    tmp_path: Path,
+) -> None:
+    con = duckdb.connect(str(build_scorers_db(tmp_path)), read_only=True)
+
+    rows = get_top_assists(con, "PL", 2502)
+
+    assert rows.empty
+
+
+def test_top_assists_returns_the_expected_columns(tmp_path: Path) -> None:
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png');
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_top_assists(con, "PL", 2502)
+
+    assert list(rows.columns) == [
+        "rank", "player_name", "team_name", "crest", "assists", "played_matches",
+    ]
+
+
+def test_team_scorers_only_returns_this_teams_players(tmp_path: Path) -> None:
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png'),
+            (11, 'Team Y', 'https://crests.football-data.org/11.png');
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 1),
+            ('PL', 2502, 2, 'Player B', 11, 'Team Y', 10, 20, 5, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_scorers(con, 10, "PL", 2502)
+
+    assert list(rows["player_name"]) == ["Player A"]
+    assert rows.iloc[0]["goals"] == 8
+    assert rows.iloc[0]["penalties"] == 1
+
+
+def test_team_scorers_is_not_capped_at_20(tmp_path: Path) -> None:
+    """The league-wide Top Scorers view caps at 20 (QUALIFY rank <= 20),
+    but a single team's own scorer list must show every player -- a squad
+    with more than 20 goal/assist contributors on the season is not
+    reachable in practice, but nothing here should silently truncate it
+    if it were.
+    """
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("insert into main.dim_teams values (10, 'Team X', null)")
+    rows_sql = ", ".join(
+        f"('PL', 2502, {i}, 'P{i}', 10, 'Team X', 10, {i}, 0, 0)" for i in range(1, 26)
+    )
+    con.execute(f"insert into main.fct_scorers values {rows_sql}")
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_scorers(con, 10, "PL", 2502)
+
+    assert len(rows) == 25
+
+
+def test_team_assists_only_returns_this_teams_players(tmp_path: Path) -> None:
+    db_path = build_scorers_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.dim_teams values
+            (10, 'Team X', 'https://crests.football-data.org/10.png'),
+            (11, 'Team Y', 'https://crests.football-data.org/11.png');
+        insert into main.fct_scorers values
+            ('PL', 2502, 1, 'Player A', 10, 'Team X', 10, 8, 2, 0),
+            ('PL', 2502, 2, 'Player B', 11, 'Team Y', 10, 20, 5, 0)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_assists(con, 10, "PL", 2502)
+
+    assert list(rows["player_name"]) == ["Player A"]
+    assert rows.iloc[0]["assists"] == 2
 
 
 def build_league_fixtures_db(tmp_path: Path) -> Path:
@@ -1854,6 +1992,23 @@ def test_team_form_returns_last_10_finished_across_competitions(tmp_path: Path) 
     rows = get_team_recent_form(con, 1)
 
     assert len(rows) == 10
+
+
+def test_team_form_includes_competition_emblem(tmp_path: Path) -> None:
+    db_path = build_team_matches_db(tmp_path)
+    con = duckdb.connect(str(db_path))
+    con.execute("""
+        insert into main.fct_team_matches values
+            (1, 'PL', 2502, '2026-09-01', 'FINISHED', null, 1, 2, true, 2, 1, 'W');
+        insert into main.fct_matches values
+            (1, '2026-09-01 15:00:00', true)
+    """)
+    con.close()
+    con = duckdb.connect(str(db_path), read_only=True)
+
+    rows = get_team_recent_form(con, 1)
+
+    assert rows.iloc[0]["competition_emblem"] == "https://crests.football-data.org/PL.png"
 
 
 def test_team_form_excludes_scheduled_matches(tmp_path: Path) -> None:

@@ -13,7 +13,6 @@ from backend.serialization import record, records
 from warehouse.queries import (
     ConnectionLike,
     get_competition_seasons,
-    get_cross_league_stats,
     get_current_season_id,
     get_league_fixtures,
     get_league_position_history,
@@ -21,8 +20,8 @@ from warehouse.queries import (
     get_match_detail,
     get_reconstructed_final_standings,
     get_standings,
-    get_streaks,
     get_teams_in_season,
+    get_top_assists,
     get_top_scorers,
 )
 
@@ -48,13 +47,6 @@ def teams_in_season(
     code: str, season: int, con: Annotated[ConnectionLike, Depends(get_con)]
 ) -> list[dict[str, object]]:
     return records(get_teams_in_season(con, code, season))
-
-
-@router.get("/api/cross-league-stats")
-def cross_league_stats(
-    con: Annotated[ConnectionLike, Depends(get_con)],
-) -> list[dict[str, object]]:
-    return records(get_cross_league_stats(con))
 
 
 @router.get("/api/matches/{match_id}")
@@ -105,11 +97,11 @@ def scorers(
     return records(get_top_scorers(con, code, season))
 
 
-@router.get("/api/leagues/{code}/streaks")
-def streaks(
-    code: str, con: Annotated[ConnectionLike, Depends(get_con)]
+@router.get("/api/leagues/{code}/assists")
+def assists(
+    code: str, season: int, con: Annotated[ConnectionLike, Depends(get_con)]
 ) -> list[dict[str, object]]:
-    return records(get_streaks(con, code))
+    return records(get_top_assists(con, code, season))
 
 
 @router.get("/api/leagues/{code}/position-history")

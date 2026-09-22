@@ -71,12 +71,6 @@ def client(tmp_path: Path) -> TestClient:
         values ('PL', 'Premier League', 'England', NULL, NULL)
     """)
     con.execute("""
-        create table mart_cross_league_stats (
-            competition_code varchar, season_id bigint, decided_matches bigint,
-            avg_goals_per_match double, avg_goal_margin double, home_win_rate double
-        )
-    """)
-    con.execute("""
         create table fct_standings_snapshot (
             competition_code varchar, season_id bigint, team_id bigint,
             snapshot_date date, stage varchar, table_type varchar,
@@ -121,16 +115,6 @@ def client(tmp_path: Path) -> TestClient:
         insert into fct_scorers values
             (501, 'PL', 2526, 1, 'Team A', 'Top Scorer', 12, 4, 20, 2)
     """)
-    con.execute("""
-        create table mart_streaks (
-            team_id bigint, competition_code varchar,
-            current_win_streak integer, current_unbeaten_streak integer,
-            longest_win_streak integer, longest_unbeaten_streak integer
-        )
-    """)
-    con.execute("""
-        insert into mart_streaks values (1, 'PL', 3, 5, 6, 9)
-    """)
     con.close()
 
     app = create_app(db_path=db_path)
@@ -159,18 +143,6 @@ def test_teams_in_season_returns_teams_with_a_match(client: TestClient) -> None:
     assert response.status_code == 200
     team_ids = {row["team_id"] for row in response.json()}
     assert team_ids == {1, 2}
-
-
-def test_cross_league_stats_returns_one_row_per_competition(client: TestClient) -> None:
-    response = client.get("/api/cross-league-stats")
-
-    assert response.status_code == 200
-    body = response.json()
-    assert len(body) == 1
-    assert body[0]["competition_name"] == "Premier League"
-    # LEFT JOIN with an empty mart_cross_league_stats -- absence is a real
-    # state, not an error (see warehouse/queries.py's own docstring).
-    assert body[0]["decided_matches"] is None
 
 
 def test_match_detail_returns_the_real_match(client: TestClient) -> None:
@@ -232,12 +204,13 @@ def test_scorers_returns_the_ranked_leaderboard(client: TestClient) -> None:
     assert body[0]["goals"] == 12
 
 
-def test_streaks_returns_the_team_streak_row(client: TestClient) -> None:
-    response = client.get("/api/leagues/PL/streaks")
+def test_assists_returns_the_ranked_leaderboard(client: TestClient) -> None:
+    response = client.get("/api/leagues/PL/assists?season=2526")
 
     assert response.status_code == 200
     body = response.json()
-    assert body[0]["current_win_streak"] == 3
+    assert body[0]["player_name"] == "Top Scorer"
+    assert body[0]["assists"] == 4
 
 
 def test_position_history_returns_every_teams_matchday_positions(client: TestClient) -> None:

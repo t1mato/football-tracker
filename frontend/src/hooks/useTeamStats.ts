@@ -69,3 +69,65 @@ export function useTeamPositionHistory(
     enabled: enabled && teamId !== null && season !== undefined,
   })
 }
+
+export interface TeamScorerRow {
+  player_name: string
+  crest: string | null
+  goals: number
+  assists: number
+  played_matches: number
+  penalties: number
+}
+
+async function fetchTeamScorers(
+  teamId: number,
+  league: string,
+  season: number
+): Promise<TeamScorerRow[]> {
+  const response = await fetch(`/api/teams/${teamId}/scorers?league=${league}&season=${season}`)
+  if (!response.ok) throw new Error(`GET scorers failed: ${response.status}`)
+  return response.json()
+}
+
+export function useTeamScorers(
+  teamId: number | null,
+  league: string,
+  season: number | undefined,
+  enabled: boolean
+) {
+  return useQuery({
+    queryKey: ['teams', teamId, 'scorers', league, season],
+    queryFn: () => fetchTeamScorers(teamId as number, league, season as number),
+    enabled: enabled && teamId !== null && season !== undefined,
+  })
+}
+
+export interface TeamAssistRow {
+  player_name: string
+  crest: string | null
+  assists: number
+  played_matches: number
+}
+
+async function fetchTeamAssists(
+  teamId: number,
+  league: string,
+  season: number
+): Promise<TeamAssistRow[]> {
+  const response = await fetch(`/api/teams/${teamId}/assists?league=${league}&season=${season}`)
+  if (!response.ok) throw new Error(`GET assists failed: ${response.status}`)
+  return response.json()
+}
+
+export function useTeamAssists(
+  teamId: number | null,
+  league: string,
+  season: number | undefined,
+  enabled: boolean
+) {
+  return useQuery({
+    queryKey: ['teams', teamId, 'assists', league, season],
+    queryFn: () => fetchTeamAssists(teamId as number, league, season as number),
+    enabled: enabled && teamId !== null && season !== undefined,
+  })
+}

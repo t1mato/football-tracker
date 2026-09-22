@@ -69,11 +69,11 @@ export function CompareTab({ teamId, teamName, active }: CompareTabProps) {
                 <table className="w-full text-lg mt-2">
                   <thead>
                     <tr className="text-left text-text-muted text-base uppercase">
-                      <th>Kickoff</th>
-                      <th>Competition</th>
-                      <th>Home</th>
-                      <th className="text-center">Score</th>
-                      <th>Away</th>
+                      <th className="pb-3 px-2">Kickoff</th>
+                      <th className="pb-3 px-2">Competition</th>
+                      <th className="pb-3 px-2">Home</th>
+                      <th className="pb-3 px-2 text-center">Score</th>
+                      <th className="pb-3 px-2">Away</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -82,13 +82,15 @@ export function CompareTab({ teamId, teamName, active }: CompareTabProps) {
                         key={`${m.kickoff_utc}-${m.home_team_name}`}
                         className="border-t border-line"
                       >
-                        <td>{formatKickoff(m.kickoff_utc, m.kickoff_time_confirmed)}</td>
-                        <td>{m.competition_name}</td>
-                        <td>{m.home_team_name}</td>
-                        <td className="text-center">
+                        <td className="py-3 px-2">
+                          {formatKickoff(m.kickoff_utc, m.kickoff_time_confirmed)}
+                        </td>
+                        <td className="px-2">{m.competition_name}</td>
+                        <td className="px-2">{m.home_team_name}</td>
+                        <td className="px-2 text-center">
                           {formatScore(m.full_time_home, m.full_time_away)}
                         </td>
-                        <td>{m.away_team_name}</td>
+                        <td className="px-2">{m.away_team_name}</td>
                       </tr>
                     ))}
                   </tbody>

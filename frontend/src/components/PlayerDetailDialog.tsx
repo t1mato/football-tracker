@@ -66,12 +66,12 @@ export function PlayerDetailDialog({ playerId, onClose }: PlayerDetailDialogProp
                 <table className="w-full text-lg mt-2">
                   <thead>
                     <tr className="text-left text-text-muted text-base uppercase">
-                      <th>Season</th>
-                      <th>Competition</th>
-                      <th className="text-center">G</th>
-                      <th className="text-center">A</th>
-                      <th className="text-center">MP</th>
-                      <th className="text-center">Pen</th>
+                      <th className="pb-3 px-2">Season</th>
+                      <th className="pb-3 px-2">Competition</th>
+                      <th className="pb-3 px-2 text-center">G</th>
+                      <th className="pb-3 px-2 text-center">A</th>
+                      <th className="pb-3 px-2 text-center">MP</th>
+                      <th className="pb-3 px-2 text-center">Pen</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -80,12 +80,12 @@ export function PlayerDetailDialog({ playerId, onClose }: PlayerDetailDialogProp
                         key={`${row.competition_name}-${row.start_date}`}
                         className="border-t border-line"
                       >
-                        <td>{seasonLabel(row.start_date, row.end_date)}</td>
-                        <td>{row.competition_name}</td>
-                        <td className="text-center">{row.goals}</td>
-                        <td className="text-center">{row.assists}</td>
-                        <td className="text-center">{row.played_matches}</td>
-                        <td className="text-center">{row.penalties}</td>
+                        <td className="py-3 px-2">{seasonLabel(row.start_date, row.end_date)}</td>
+                        <td className="px-2">{row.competition_name}</td>
+                        <td className="px-2 text-center">{row.goals}</td>
+                        <td className="px-2 text-center">{row.assists}</td>
+                        <td className="px-2 text-center">{row.played_matches}</td>
+                        <td className="px-2 text-center">{row.penalties}</td>
                       </tr>
                     ))}
                   </tbody>

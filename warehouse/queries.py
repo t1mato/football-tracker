@@ -365,10 +365,10 @@ def get_top_scorers(
     in an arbitrary order (same class of concern get_standings' own
     ORDER BY comment already flags).
 
-    QUALIFY rank <= 10 caps the Leaders/Golden Boot tab at the top 10 --
-    ties-inclusive (a 4-way tie at rank 10 keeps all four), consistent
+    QUALIFY rank <= 20 caps the Leaders tab's Top Scorers view at the top
+    20 -- ties-inclusive (a 4-way tie at rank 20 keeps all four), consistent
     with rank()'s own gap-preserving semantics rather than an arbitrary
-    "first 10 rows" LIMIT that would cut one of a tied group.
+    "first 20 rows" LIMIT that would cut one of a tied group.
     """
     return _con.execute(
         """
@@ -383,10 +383,84 @@ def get_top_scorers(
         from fct_scorers s
         left join dim_teams t on s.team_id = t.team_id
         where s.competition_code = ? and s.season_id = ?
-        qualify rank <= 10
+        qualify rank <= 20
         order by rank, s.player_name
         """,
         [competition_code, season_id],
+    ).df()
+
+
+def get_top_assists(
+    _con: ConnectionLike, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """The Leaders tab's Top Assists view -- same shape and reasoning as
+    get_top_scorers (rank() for gap-preserving ties, coalesced NULL
+    assists, QUALIFY rank <= 20, ORDER BY tiebreak on player_name), just
+    ranked by assists first instead of goals. goals desc/played_matches asc
+    remain the tiebreak sequence after assists, mirroring get_top_scorers'
+    own goals-then-assists-then-matches order with the first two swapped.
+    """
+    return _con.execute(
+        """
+        select
+            rank() over (
+                order by coalesce(s.assists, 0) desc, s.goals desc, s.played_matches asc
+            ) as rank,
+            s.player_name, s.team_name, t.crest,
+            coalesce(s.assists, 0) as assists,
+            s.played_matches
+        from fct_scorers s
+        left join dim_teams t on s.team_id = t.team_id
+        where s.competition_code = ? and s.season_id = ?
+        qualify rank <= 20
+        order by rank, s.player_name
+        """,
+        [competition_code, season_id],
+    ).df()
+
+
+def get_team_scorers(
+    _con: ConnectionLike, team_id: int, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """One team's own scorers for a competition/season, every player, no
+    rank cap -- the club Stats tab's Top Scorers list. Unlike
+    get_top_scorers, this is already scoped to a single team, so there is
+    no ranking/tie concept to preserve across a cut boundary; a plain
+    ORDER BY is enough.
+    """
+    return _con.execute(
+        """
+        select s.player_name, t.crest, s.goals,
+               coalesce(s.assists, 0) as assists,
+               s.played_matches,
+               coalesce(s.penalties, 0) as penalties
+        from fct_scorers s
+        left join dim_teams t on s.team_id = t.team_id
+        where s.team_id = ? and s.competition_code = ? and s.season_id = ?
+        order by s.goals desc, coalesce(s.assists, 0) desc, s.played_matches asc, s.player_name
+        """,
+        [team_id, competition_code, season_id],
+    ).df()
+
+
+def get_team_assists(
+    _con: ConnectionLike, team_id: int, competition_code: str, season_id: int
+) -> pd.DataFrame:
+    """One team's own assist providers for a competition/season, every
+    player, no rank cap -- the club Stats tab's Top Assists list. Same
+    reasoning as get_team_scorers.
+    """
+    return _con.execute(
+        """
+        select s.player_name, t.crest,
+               coalesce(s.assists, 0) as assists,
+               s.played_matches
+        from fct_scorers s
+        left join dim_teams t on s.team_id = t.team_id
+        where s.team_id = ? and s.competition_code = ? and s.season_id = ?
+        order by coalesce(s.assists, 0) desc, s.played_matches asc, s.player_name
+        """,
+        [team_id, competition_code, season_id],
     ).df()
 
 
@@ -842,11 +916,16 @@ def get_team_recent_form(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
     join. Ordering by the real timestamp instead of the bare date is also
     what gives two same-day matches a deterministic order; a DATE alone
     has no tiebreak.
+
+    competition_emblem is selected for the same reason get_team_upcoming
+    already selects it -- a club's last 10 spans more than one
+    competition, so the Form tab needs the emblem to say which one each
+    row belongs to, not just its name.
     """
     return _con.execute(
         """
         select m.kickoff_utc, m.kickoff_time_confirmed, t.team_name as opponent_team_name,
-               t.crest as opponent_crest, c.competition_name,
+               t.crest as opponent_crest, c.competition_name, c.emblem as competition_emblem,
                f.goals_for, f.goals_against, f.result
         from fct_team_matches f
         left join fct_matches m on f.match_id = m.match_id

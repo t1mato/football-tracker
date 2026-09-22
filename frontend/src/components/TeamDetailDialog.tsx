@@ -54,7 +54,12 @@ export function TeamDetailDialog({
       onTabChange={setActiveTab}
     >
       <Tabs.Content value="form" className="pt-6">
-        <FormTab teamId={teamId} active={activeTab === 'form'} />
+        <FormTab
+          teamId={teamId}
+          teamName={teamName}
+          teamCrest={teamCrest}
+          active={activeTab === 'form'}
+        />
       </Tabs.Content>
       <Tabs.Content value="fixtures" className="pt-6">
         <TeamFixturesTab
@@ -75,6 +80,8 @@ export function TeamDetailDialog({
       <Tabs.Content value="position" className="pt-6">
         <PositionTab
           teamId={teamId}
+          teamName={teamName}
+          teamCrest={teamCrest}
           leagueCode={leagueCode}
           leagueSeasonId={leagueSeasonId}
           active={activeTab === 'position'}

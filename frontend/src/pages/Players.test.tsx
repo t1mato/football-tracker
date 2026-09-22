@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { http, HttpResponse } from 'msw'
@@ -22,21 +22,8 @@ const PLAYERS = [
   },
 ]
 
-const COMPETITIONS = [
-  {
-    competition_code: 'PL',
-    competition_name: 'Premier League',
-    area_name: 'England',
-    emblem: null,
-    area_flag: null,
-  },
-]
-
 describe('Players', () => {
-  let scorersCallCount = 0
-
   beforeEach(() => {
-    scorersCallCount = 0
     server.use(
       http.get('/api/players', () => HttpResponse.json(PLAYERS)),
       http.get('/api/players/1', () =>
@@ -49,21 +36,14 @@ describe('Players', () => {
           crest: 'a.png',
         })
       ),
-      http.get('/api/players/1/scoring-history', () => HttpResponse.json([])),
-      http.get('/api/competitions', () => HttpResponse.json(COMPETITIONS)),
-      http.get('/api/leagues/PL/current-season', () => HttpResponse.json({ season_id: 2526 })),
-      http.get('/api/leagues/PL/scorers', () => {
-        scorersCallCount++
-        return HttpResponse.json([])
-      })
+      http.get('/api/players/1/scoring-history', () => HttpResponse.json([]))
     )
   })
 
-  it('renders the Directory tab by default', async () => {
+  it('renders the player directory', async () => {
     renderWithQueryClient(<Players />)
 
     expect(await screen.findByText('Alice Smith')).toBeInTheDocument()
-    expect(scorersCallCount).toBe(0)
   })
 
   it('opens the detail dialog for the clicked player', async () => {
@@ -73,16 +53,5 @@ describe('Players', () => {
     await userEvent.click(row)
 
     expect(await screen.findByRole('heading', { name: 'Alice Smith' })).toBeInTheDocument()
-  })
-
-  it('activates GoldenBootTab and fetches its data when the tab is switched', async () => {
-    renderWithQueryClient(<Players />)
-    await screen.findByText('Alice Smith')
-    expect(scorersCallCount).toBe(0)
-
-    await userEvent.click(screen.getByRole('tab', { name: 'Golden Boot' }))
-
-    await screen.findByRole('combobox')
-    await waitFor(() => expect(scorersCallCount).toBeGreaterThan(0))
   })
 })

@@ -6,7 +6,6 @@ import { StandingsTab } from './tabs/StandingsTab'
 import { RecentResultsTab } from './tabs/RecentResultsTab'
 import { FixturesTab } from './tabs/FixturesTab'
 import { LeadersTab } from './tabs/LeadersTab'
-import { StreaksTab } from './tabs/StreaksTab'
 import { LeaguePositionBumpChart } from './tabs/LeaguePositionBumpChart'
 
 interface LeagueDetailDialogProps {
@@ -22,7 +21,6 @@ const TABS = [
   { value: 'results', label: 'Recent Results' },
   { value: 'fixtures', label: 'Fixtures' },
   { value: 'leaders', label: 'Leaders' },
-  { value: 'streaks', label: 'Streaks' },
 ]
 
 export function LeagueDetailDialog({
@@ -106,13 +104,6 @@ export function LeagueDetailDialog({
           competitionCode={code}
           seasonId={seasonId}
           active={activeTab === 'leaders'}
-        />
-      </Tabs.Content>
-      <Tabs.Content value="streaks" className="pt-6">
-        <StreaksTab
-          competitionCode={code}
-          currentSeasonId={currentSeasonId}
-          active={activeTab === 'streaks'}
         />
       </Tabs.Content>
     </DetailDialog>
