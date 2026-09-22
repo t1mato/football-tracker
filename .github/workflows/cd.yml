@@ -67,29 +67,82 @@ jobs:
 
       - run: |
           {
-            echo "### Image pushed: \`${{ steps.tag.outputs.sha }}\`"
+            echo "### app image pushed: \`${{ steps.tag.outputs.sha }}\`"
             echo
-            echo "This is the **app** image tag only. Deploying it also requires"
-            echo "\`image_tag\`, the **pipeline** image tag (ingest/transform/weather"
-            echo "Cloud Run Jobs) -- a completely separate value that this workflow"
-            echo "does not build or know. Do NOT set \`image_tag\` to the SHA above;"
-            echo "that tag does not exist in Artifact Registry for the pipeline image"
-            echo "and Terraform will apply successfully while pointing the jobs at a"
-            echo "nonexistent image, which only fails at the next Cloud Scheduler run."
-            echo
-            echo "Look up the currently-deployed pipeline tag separately first, e.g.:"
-            echo '```'
-            echo "terraform show | grep 'image ='"
-            echo "# or"
-            echo "gcloud run jobs describe ingest --region=us-central1 \\"
-            echo "  --format='value(spec.template.spec.template.spec.containers[0].image)'"
-            echo '```'
-            echo
-            echo "Then apply with both vars set explicitly -- \`<PIPELINE_TAG>\` below"
-            echo "is a placeholder, not a value to paste as-is:"
+            echo "Deploying requires \`terraform apply\` with **both**"
+            echo "\`app_image_tag\` and \`image_tag\` (the pipeline image, built"
+            echo "by the sibling job in this same workflow run) set explicitly --"
+            echo "since both jobs build from the same commit, they share this SHA:"
             echo '```'
             echo "cd terraform/gcp && terraform apply -var-file=terraform.tfvars \\"
-            echo "  -var image_tag=<PIPELINE_TAG> \\"
+            echo "  -var image_tag=${{ steps.tag.outputs.sha }} \\"
+            echo "  -var app_image_tag=${{ steps.tag.outputs.sha }}"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  build-and-push-pipeline-image:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: cd-pipeline-image
+      # Same reasoning as build-and-push-app-image's group: each run pushes
+      # a distinct immutable tag, so cancelling an in-flight run would be
+      # wrong -- this just makes ordering explicit, it never cancels.
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      id-token: write   # required for WIF -- not on the default token
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: projects/201121489097/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: ci-deployer@football-tracker-508022.iam.gserviceaccount.com
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - run: gcloud auth configure-docker us-central1-docker.pkg.dev
+
+      - id: tag
+        run: |
+          sha="${{ github.event.workflow_run.head_sha || github.sha }}"
+          echo "sha=${sha::7}" >> "$GITHUB_OUTPUT"
+
+      # Plain `docker build` + `docker push`, deliberately not `docker
+      # buildx build --push` -- buildx's own CLI attaches a provenance/SBOM
+      # attestation manifest to the pushed image index by default, which
+      # Cloud Run's job runner rejects outright ("Container manifest type
+      # ... must support amd64/linux") even though the real image
+      # underneath is fine. Hit for real: the pipeline image had been
+      # pushed by hand with `buildx build --push` at some point, and every
+      # nightly ingest/transform/weather run silently failed on it. This
+      # exact two-step form is what build-and-push-app-image already uses,
+      # and its image has never had the problem.
+      - run: |
+          docker build -f Dockerfile \
+            -t ${{ env.REGISTRY }}/pipeline:${{ steps.tag.outputs.sha }} \
+            .
+          docker push ${{ env.REGISTRY }}/pipeline:${{ steps.tag.outputs.sha }}
+
+      - run: |
+          {
+            echo "### pipeline image pushed: \`${{ steps.tag.outputs.sha }}\`"
+            echo
+            echo "Deploying requires \`terraform apply\` with **both**"
+            echo "\`image_tag\` and \`app_image_tag\` (the app image, built by"
+            echo "the sibling job in this same workflow run) set explicitly --"
+            echo "since both jobs build from the same commit, they share this SHA:"
+            echo '```'
+            echo "cd terraform/gcp && terraform apply -var-file=terraform.tfvars \\"
+            echo "  -var image_tag=${{ steps.tag.outputs.sha }} \\"
             echo "  -var app_image_tag=${{ steps.tag.outputs.sha }}"
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
