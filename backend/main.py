@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from warehouse.queries import (
+from backend.queries import (
     DEFAULT_DB_PATH,
     ConnectionLike,
     get_competitions,

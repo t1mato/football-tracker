@@ -8,8 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from backend.main import get_con
-from backend.serialization import record, records
-from warehouse.queries import (
+from backend.queries import (
     ConnectionLike,
     get_current_teams,
     get_head_to_head,
@@ -22,6 +21,7 @@ from warehouse.queries import (
     get_team_upcoming,
     get_teams_for_league,
 )
+from backend.serialization import record, records
 
 router = APIRouter()
 

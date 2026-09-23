@@ -9,8 +9,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.main import get_con
-from backend.serialization import record, records
-from warehouse.queries import (
+from backend.queries import (
     ConnectionLike,
     get_competition_seasons,
     get_current_season_id,
@@ -24,6 +23,7 @@ from warehouse.queries import (
     get_top_assists,
     get_top_scorers,
 )
+from backend.serialization import record, records
 
 router = APIRouter()
 

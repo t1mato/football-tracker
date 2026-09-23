@@ -62,6 +62,10 @@ backend = [
     "numpy>=2.5.3",
     "google-cloud-bigquery>=3.45.0",
     "db-dtypes>=1.7.1",
+    # backend/caching.py's TTL cache -- the FastAPI equivalent of
+    # app/queries.py's @st.cache_data(ttl=600). Ships its own py.typed
+    # stubs, no types-cachetools needed for mypy --strict.
+    "cachetools>=7.2",
 ]
 dev = [
     "pytest>=8.0",

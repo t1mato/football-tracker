@@ -9,13 +9,13 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from backend.main import get_con
-from backend.serialization import record, records
-from warehouse.queries import (
+from backend.queries import (
     ConnectionLike,
     get_player_bio,
     get_player_scoring_history,
     get_players_directory,
 )
+from backend.serialization import record, records
 
 router = APIRouter()
 
