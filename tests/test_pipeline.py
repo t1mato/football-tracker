@@ -136,8 +136,10 @@ def test_run_transform_raises_on_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_main_ingest_mode_runs_current_season(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[object] = []
-    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append(seasons))
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.ingest_current_season", lambda: calls.append("ingest")
+    )
     monkeypatch.setattr(
         "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
     )
@@ -145,11 +147,11 @@ def test_main_ingest_mode_runs_current_season(monkeypatch: pytest.MonkeyPatch) -
         "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
     )
 
-    from football_pipeline.pipeline import CURRENT_SEASON, main
+    from football_pipeline.pipeline import main
 
     main(["ingest"])
 
-    assert calls == [(CURRENT_SEASON,)]
+    assert calls == ["ingest"]
 
 
 def test_main_transform_mode_runs_dbt_build(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -193,8 +195,10 @@ def test_main_bare_args_defaults_to_current_season(monkeypatch: pytest.MonkeyPat
     """Pins today's bare `python -m football_pipeline.pipeline` behavior --
     it must keep working identically after this refactor.
     """
-    calls: list[object] = []
-    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append(seasons))
+    calls: list[str] = []
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.ingest_current_season", lambda: calls.append("ingest")
+    )
     monkeypatch.setattr(
         "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
     )
@@ -202,11 +206,45 @@ def test_main_bare_args_defaults_to_current_season(monkeypatch: pytest.MonkeyPat
         "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
     )
 
-    from football_pipeline.pipeline import CURRENT_SEASON, main
+    from football_pipeline.pipeline import main
 
     main([])
 
-    assert calls == [(CURRENT_SEASON,)]
+    assert calls == ["ingest"]
+
+
+def test_ingest_current_season_shares_one_client_between_discovery_and_run(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The whole point of ingest_current_season existing as its own function
+    (instead of inlining discover_current_season() at each main() call
+    site) is that discovery and the actual ingest run share one
+    FootballDataClient -- one token bucket accounting for both calls,
+    instead of each getting its own fresh one.
+    """
+    sentinel_client = object()
+    calls: list[object] = []
+
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.build_client", lambda: sentinel_client
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.discover_current_season",
+        lambda client: calls.append(("discover", client)) or 2027,
+    )
+    monkeypatch.setattr(
+        "football_pipeline.pipeline.run",
+        lambda seasons, client=None: calls.append(("run", seasons, client)),
+    )
+
+    from football_pipeline.pipeline import ingest_current_season
+
+    ingest_current_season()
+
+    assert calls == [
+        ("discover", sentinel_client),
+        ("run", (2027,), sentinel_client),
+    ]
 
 
 def test_main_season_args_still_backfills(monkeypatch: pytest.MonkeyPatch) -> None:

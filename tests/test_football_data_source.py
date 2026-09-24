@@ -11,6 +11,7 @@ import responses
 from football_pipeline.client import FootballDataClient, NotFoundError
 from football_pipeline.football_data_source import (
     ResponseCache,
+    discover_current_season,
     football_data_source,
     iter_competitions,
     iter_matches,
@@ -170,6 +171,65 @@ def test_competitions_handles_a_missing_emblem_or_flag() -> None:
 
     assert rows[0]["emblem"] is None
     assert rows[0]["area_flag"] is None
+
+
+@responses.activate
+def test_discover_current_season_takes_the_latest_start_year_among_tracked_competitions() -> None:
+    """PL and CL agree on year in COMPETITIONS_PAYLOAD -- craft a payload
+    where they genuinely differ to prove this takes the max, not just
+    whichever tracked competition happens to come first in the response.
+    """
+    payload = {
+        "count": 2,
+        "competitions": [
+            {
+                "id": 2021, "code": "PL", "name": "Premier League",
+                "currentSeason": {"id": 2502, "startDate": "2026-08-21", "endDate": "2027-05-30"},
+            },
+            {
+                "id": 2001, "code": "CL", "name": "UEFA Champions League",
+                "currentSeason": {"id": 2557, "startDate": "2027-09-08", "endDate": "2028-01-27"},
+            },
+        ],
+    }
+    responses.get(f"{BASE_URL}/competitions", json=payload, status=200)
+
+    assert discover_current_season(make_client()) == 2027
+
+
+@responses.activate
+def test_discover_current_season_ignores_untracked_competitions() -> None:
+    """A competition outside COMPETITIONS must not be able to drag the
+    discovered season forward -- only the six we actually track count.
+    """
+    payload = {
+        "count": 2,
+        "competitions": [
+            {
+                "id": 2021, "code": "PL", "name": "Premier League",
+                "currentSeason": {"id": 2502, "startDate": "2026-08-21", "endDate": "2027-05-30"},
+            },
+            {
+                "id": 2013, "code": "BSA", "name": "Serie A Brazil",
+                "currentSeason": {"id": 2999, "startDate": "2099-01-01", "endDate": "2099-12-01"},
+            },
+        ],
+    }
+    responses.get(f"{BASE_URL}/competitions", json=payload, status=200)
+
+    assert discover_current_season(make_client()) == 2026
+
+
+@responses.activate
+def test_discover_current_season_raises_when_no_tracked_competition_has_one() -> None:
+    """No silent fallback -- a payload that cannot answer the question must
+    fail loudly rather than let the caller quietly use a stale prior value.
+    """
+    payload = {"count": 1, "competitions": [{"id": 2013, "code": "BSA", "name": "Serie A Brazil"}]}
+    responses.get(f"{BASE_URL}/competitions", json=payload, status=200)
+
+    with pytest.raises(RuntimeError, match="current season"):
+        discover_current_season(make_client())
 
 
 def teams_payload(*teams: dict[str, Any]) -> dict[str, Any]:

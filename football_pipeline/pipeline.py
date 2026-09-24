@@ -22,7 +22,7 @@ import dlt
 from google.cloud import bigquery
 
 from football_pipeline.client import FootballDataClient
-from football_pipeline.football_data_source import football_data_source
+from football_pipeline.football_data_source import discover_current_season, football_data_source
 from football_pipeline.rate_limiter import RateLimiter
 from football_pipeline.weather_source import (
     DEFAULT_LIMITER_CAPACITY,
@@ -39,15 +39,6 @@ DEFAULT_DB_PATH = Path("football_data.duckdb")
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TRANSFORM_DIR = REPO_ROOT / "transform"
 DBT_EXECUTABLE = REPO_ROOT / ".venv" / "bin" / "dbt"
-
-# Bump this every August when the season rolls over. If it is left behind,
-# nightly runs keep requesting the stale season and fixtures silently stop
-# appearing -- there is no error, just a competition that quietly goes stale.
-# /competitions already returns each competition's currentSeason, so this
-# could be derived from a live call instead of hardcoded, if that indirection
-# is ever worth the extra request.
-CURRENT_SEASON = 2026
-
 
 def _destination() -> str | Any:
     """Local dev is unaffected -- returns the exact "duckdb" literal
@@ -81,18 +72,33 @@ def build_client() -> FootballDataClient:
     )
 
 
-def run(seasons: tuple[int, ...]) -> Any:
+def run(seasons: tuple[int, ...], client: FootballDataClient | None = None) -> Any:
     pipeline = dlt.pipeline(
         pipeline_name="football_data",
         destination=_destination(),
         dataset_name="raw",
     )
     source = football_data_source(
-        client=build_client(),
+        client=client or build_client(),
         seasons=seasons,
         run_date=datetime.now(UTC).date(),
     )
     return pipeline.run(source)
+
+
+def ingest_current_season() -> Any:
+    """Discovers the current season live from /competitions and ingests it,
+    sharing one rate-limited client between the discovery call and the
+    ingest run itself -- one FootballDataClient means one token bucket, so
+    the two calls stay accounted for against the same 10 req/min budget
+    instead of each getting its own fresh bucket. Used by both main()'s
+    default/"ingest" paths and orchestration/definitions.py's
+    football_data_ingestion asset.
+    """
+    client = build_client()
+    season = discover_current_season(client)
+    print(f"loading seasons: {(season,)}")
+    return run((season,), client=client)
 
 
 def run_weather(db_path: Path = DEFAULT_DB_PATH) -> Any:
@@ -198,15 +204,17 @@ def main(argv: list[str]) -> None:
     if argv[:1] == ["weather"]:
         print(run_weather())
     elif argv[:1] == ["ingest"]:
-        print(run((CURRENT_SEASON,)))
+        print(ingest_current_season())
     elif argv[:1] == ["transform"]:
         print(run_transform())
     elif argv[:1] == ["transform-weather"]:
         print(run_transform_weather())
-    else:
-        requested = tuple(int(a) for a in argv) or (CURRENT_SEASON,)
+    elif argv:
+        requested = tuple(int(a) for a in argv)
         print(f"loading seasons: {requested}")
         print(run(requested))
+    else:
+        print(ingest_current_season())
 
 
 if __name__ == "__main__":

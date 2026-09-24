@@ -95,6 +95,48 @@ def iter_competitions(
         }
 
 
+def discover_current_season(
+    client: FootballDataClient, codes: tuple[str, ...] = COMPETITIONS
+) -> int:
+    """The season year to pass as football-data.org's `?season=` query
+    param, read live from `/competitions` instead of a hardcoded constant
+    that needs bumping every August. A stale hardcoded value fails
+    silently: nightly runs keep requesting a season that already ended,
+    and fixtures just stop appearing with no error anywhere.
+
+    Takes the max start year across every tracked competition's
+    currentSeason, not just the first one found -- competitions do not
+    all roll over on the same exact day (confirmed live, PLAN.md
+    2026-09-03: CL's league phase started weeks after the domestic
+    leagues had already begun their seasons). Picking the newest observed
+    year is self-correcting: a competition that has not rolled over yet
+    just returns no rows for a season it is not on yet -- a visibly thin
+    night, not a silently stale one, which is what picking the oldest
+    year would reproduce.
+
+    Costs one real HTTP request beyond what football_data_source()'s own
+    ResponseCache makes for this same endpoint -- they are different
+    cache instances, so it cannot be deduped without threading a
+    pre-fetched payload through the source. Not worth it: one extra call
+    out of roughly 26 in a nightly run, against a 10 req/min budget.
+    """
+    payload = client.get("competitions")
+    years: set[int] = set()
+    for comp in payload["competitions"]:
+        if comp["code"] not in codes:
+            continue
+        start_date = (comp.get("currentSeason") or {}).get("startDate")
+        if start_date:
+            years.add(int(start_date[:4]))
+
+    if not years:
+        raise RuntimeError(
+            "could not discover current season: no tracked competition in "
+            "/competitions had a currentSeason.startDate"
+        )
+    return max(years)
+
+
 def iter_teams(
     cache: ResponseCache, codes: tuple[str, ...] = COMPETITIONS
 ) -> Iterator[dict[str, Any]]:

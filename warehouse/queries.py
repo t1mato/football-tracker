@@ -183,8 +183,9 @@ def get_current_season_id(
     _con: ConnectionLike, competition_code: str
 ) -> int:
     """The most recent season_id for this competition -- never hardcoded,
-    so this never drifts from pipeline.py's CURRENT_SEASON (see the design
-    doc for why duplicating that constant here would be a real risk).
+    so this can never drift from whatever season pipeline.py's
+    ingest_current_season() actually loaded (see the design doc for why
+    duplicating that decision here would be a real risk).
     """
     row = _con.execute(
         "select max(season_id) from dim_seasons where competition_code = ?",

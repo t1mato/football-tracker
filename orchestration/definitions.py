@@ -41,7 +41,7 @@ from pathlib import Path
 
 from dagster import AssetExecutionContext, Definitions, asset
 
-from football_pipeline.pipeline import CURRENT_SEASON, run, run_weather
+from football_pipeline.pipeline import ingest_current_season, run_weather
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TRANSFORM_DIR = REPO_ROOT / "transform"
@@ -73,8 +73,10 @@ def _run_dbt_build(context: AssetExecutionContext, *, select: str | None = None,
 def football_data_ingestion() -> None:
     """One dlt pipeline run populates every raw.* table football-data.org
     feeds, through the one shared rate-limited client pipeline.run() builds.
+    The season itself is discovered live from /competitions on each run,
+    not hardcoded -- see ingest_current_season's docstring.
     """
-    run((CURRENT_SEASON,))
+    ingest_current_season()
 
 
 @asset(deps=[football_data_ingestion], group_name="transform")
