@@ -5,9 +5,7 @@ main:
         # Workflows' ${...} expression language has no map/object literal syntax, so a
         # default like ${default(map.get(input, "key"), {})} is illegal -- {} can only
         # appear in plain YAML. Defaults are plain YAML maps instead, optionally
-        # overwritten below by the switch steps. transform_weather_overrides' default
-        # IS the override (args: ["transform-weather"]) -- without it, the second
-        # transform call would just re-run the star-schema build again.
+        # overwritten below by the switch steps.
         assign:
           - project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
           - region: "us-central1"
@@ -15,11 +13,6 @@ main:
               containerOverrides: []
           - transform_overrides:
               containerOverrides: []
-          - weather_overrides:
-              containerOverrides: []
-          - transform_weather_overrides:
-              containerOverrides:
-                - args: ["transform-weather"]
     - maybe_override_ingest:
         switch:
           - condition: ${"ingest_overrides" in input}
@@ -30,18 +23,8 @@ main:
           - condition: ${"transform_overrides" in input}
             assign:
               - transform_overrides: ${input.transform_overrides}
-    - maybe_override_weather:
-        switch:
-          - condition: ${"weather_overrides" in input}
-            assign:
-              - weather_overrides: ${input.weather_overrides}
-    - maybe_override_transform_weather:
-        switch:
-          - condition: ${"transform_weather_overrides" in input}
-            assign:
-              - transform_weather_overrides: ${input.transform_weather_overrides}
     # googleapis.run.v2...jobs.run raises its own OperationError when a single-task job
-    # execution fails, before run_ingest/run_transform/run_weather even return -- the
+    # execution fails, before run_ingest/run_transform even return -- the
     # check_* steps below never see that case fire. They're defense-in-depth for a
     # hypothetical multi-task job, not the mechanism catching today's failures.
     - run_ingest:
@@ -71,36 +54,5 @@ main:
         switch:
           - condition: ${default(map.get(transform_execution, "failedCount"), 0) > 0}
             raise: '${"transform job execution failed: " + transform_execution.name}'
-    # The weather Job's own timeout is 3600s (main.tf), but this connector call
-    # defaults to a 1800s end-to-end wait -- the connector's timeout must be >= the
-    # Job's timeout, or the Job's timeout is decorative because the connector gives up
-    # on the call first. Confirmed live: weather-8dw7s (a manual run that hit a real
-    # Open-Meteo read-timeout and got auto-retried by Cloud Run) took 2,112s, which
-    # would have tripped the 1800s default even though the Job itself went on to
-    # succeed. weather-s9rl4 (the normal nightly run) took 1,239s.
-    - run_weather:
-        call: googleapis.run.v2.projects.locations.jobs.run
-        args:
-          name: ${"projects/" + project_id + "/locations/" + region + "/jobs/weather"}
-          body:
-            overrides: ${weather_overrides}
-          connector_params:
-            timeout: 3600
-        result: weather_execution
-    - check_weather:
-        switch:
-          - condition: ${default(map.get(weather_execution, "failedCount"), 0) > 0}
-            raise: '${"weather job execution failed: " + weather_execution.name}'
-    - run_transform_weather:
-        call: googleapis.run.v2.projects.locations.jobs.run
-        args:
-          name: ${"projects/" + project_id + "/locations/" + region + "/jobs/transform"}
-          body:
-            overrides: ${transform_weather_overrides}
-        result: transform_weather_execution
-    - check_transform_weather:
-        switch:
-          - condition: ${default(map.get(transform_weather_execution, "failedCount"), 0) > 0}
-            raise: '${"transform-weather job execution failed: " + transform_weather_execution.name}'
     - finish:
         return: "nightly pipeline succeeded"

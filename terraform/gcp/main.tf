@@ -196,6 +196,10 @@ resource "google_cloud_run_v2_job" "weather" {
   name     = "weather"
   project  = var.project_id
   location = var.region
+  # Off so the next change can remove this job: the provider refuses to
+  # destroy a job while protection is on, and flipping it needs its own
+  # apply before the resource block can go.
+  deletion_protection = false
 
   template {
     template {

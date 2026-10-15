@@ -1,5 +1,5 @@
 # App uptime monitoring -- separate concern from scheduling.tf's pipeline
-# alerting: that file watches the nightly ingest/transform/weather jobs,
+# alerting: that file watches the nightly ingest/transform jobs,
 # this one watches whether the public-facing app itself is reachable.
 #
 # A request-based signal (Cloud Run's own built-in success/error-rate
