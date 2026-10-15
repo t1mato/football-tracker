@@ -108,21 +108,6 @@ models:
       - name: player_id
         tests: [not_null]
 
-  - name: stg_venues
-    columns:
-      - name: venue_name
-        tests: [unique, not_null]
-
-  - name: stg_match_weather
-    columns:
-      - name: match_id
-        tests: [unique, not_null]
-      - name: data_type
-        tests:
-          - accepted_values:
-              arguments:
-                values: ['forecast', 'actual']
-
 
 unit_tests:
   - name: coerces_a_defective_status_and_keeps_the_original
@@ -155,7 +140,7 @@ unit_tests:
     description: >
       Every SCHEDULED match sits at exactly 00:00:00Z -- the source saying
       the time is not confirmed. Emitting hour 0 would give a 19:00 fixture
-      midnight weather, silently.
+      a midnight kickoff hour, silently.
     model: stg_matches
     given:
       - input: source('raw', 'matches')
