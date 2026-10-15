@@ -1,16 +1,14 @@
 """Tests for football_pipeline/pipeline.py's destination selection and CLI modes.
 
 Directly tested here: _destination(), run()'s destination pass-through,
-run_weather()'s destination branching, run_transform()/
-run_transform_weather()'s dbt-build invocations, and main()'s mode
-dispatch. run()'s, run_weather()'s, and build_client()'s actual live
-behavior is not -- they make real API calls or read real local secrets,
-and are exercised by actually running the pipeline, not by a mocked unit
-test. CI never calls a live API (see CLAUDE.md's Testing and CI section).
+run_transform()'s dbt-build invocation, and main()'s mode dispatch. run()'s
+and build_client()'s actual live behavior is not -- they make real API calls
+or read real local secrets, and are exercised by actually running the
+pipeline, not by a mocked unit test. CI never calls a live API (see
+CLAUDE.md's Testing and CI section).
 """
 
 import subprocess
-from pathlib import Path
 
 import pytest
 
@@ -88,18 +86,13 @@ def test_run_passes_destination_through_to_dlt_pipeline(
     assert destination.destination_name == "bigquery"  # type: ignore[attr-defined]
 
 
-def test_run_transform_invokes_dbt_build_with_prod_target_and_weather_exclusion(
+def test_run_transform_invokes_a_plain_dbt_build_with_the_prod_target(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """--exclude source:raw.match_weather+ excludes the raw.match_weather
-    source node, its descendant models (stg_match_weather,
-    fct_match_weather), and its two source-attached generic tests --
-    weather isn't wired to BigQuery yet, so a plain `dbt build --target
-    prod` would fail trying to build/test against an empty raw.match_weather.
-    A model-only exclusion (`stg_match_weather+`) was tried first and found,
-    via a live run against football-tracker-508022, to miss the two
-    source-attached tests entirely (they're upstream siblings, not
-    descendants, of the model).
+    """No --select or --exclude: the whole project builds in one pass.
+    There used to be a weather-shaped hole in the middle of the DAG that
+    forced a two-pass build; with weather gone, a selector here would only
+    be a way for part of the project to silently stop building.
     """
     captured: dict[str, object] = {}
 
@@ -117,7 +110,6 @@ def test_run_transform_invokes_dbt_build_with_prod_target_and_weather_exclusion(
     assert captured["args"] == [
         str(DBT_EXECUTABLE), "build",
         "--target", "prod",
-        "--exclude", "source:raw.match_weather+",
     ]
     kwargs = captured["kwargs"]
     assert kwargs["cwd"] == TRANSFORM_DIR  # type: ignore[index]
@@ -141,9 +133,6 @@ def test_main_ingest_mode_runs_current_season(monkeypatch: pytest.MonkeyPatch) -
         "football_pipeline.pipeline.ingest_current_season", lambda: calls.append("ingest")
     )
     monkeypatch.setattr(
-        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
-    )
-    monkeypatch.setattr(
         "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
     )
 
@@ -158,9 +147,6 @@ def test_main_transform_mode_runs_dbt_build(monkeypatch: pytest.MonkeyPatch) -> 
     calls: list[str] = []
     monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append("run"))
     monkeypatch.setattr(
-        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
-    )
-    monkeypatch.setattr(
         "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
     )
 
@@ -171,26 +157,6 @@ def test_main_transform_mode_runs_dbt_build(monkeypatch: pytest.MonkeyPatch) -> 
     assert calls == ["transform"]
 
 
-def test_main_weather_mode_still_works(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Pins the pre-existing "weather" branch so this refactor cannot
-    silently drop it.
-    """
-    calls: list[str] = []
-    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append("run"))
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
-    )
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
-    )
-
-    from football_pipeline.pipeline import main
-
-    main(["weather"])
-
-    assert calls == ["weather"]
-
-
 def test_main_bare_args_defaults_to_current_season(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pins today's bare `python -m football_pipeline.pipeline` behavior --
     it must keep working identically after this refactor.
@@ -198,9 +164,6 @@ def test_main_bare_args_defaults_to_current_season(monkeypatch: pytest.MonkeyPat
     calls: list[str] = []
     monkeypatch.setattr(
         "football_pipeline.pipeline.ingest_current_season", lambda: calls.append("ingest")
-    )
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
     )
     monkeypatch.setattr(
         "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
@@ -251,9 +214,6 @@ def test_main_season_args_still_backfills(monkeypatch: pytest.MonkeyPatch) -> No
     calls: list[object] = []
     monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append(seasons))
     monkeypatch.setattr(
-        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
-    )
-    monkeypatch.setattr(
         "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
     )
 
@@ -264,133 +224,13 @@ def test_main_season_args_still_backfills(monkeypatch: pytest.MonkeyPatch) -> No
     assert calls == [(2023, 2024)]
 
 
-def test_run_transform_weather_invokes_dbt_build_with_weather_selection(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Mirror of test_run_transform_invokes_dbt_build_with_prod_target_and_weather_exclusion,
-    but --select instead of --exclude -- this is the second dbt invocation
-    in production's now-4-step chain, run only after weather ingestion has
-    populated raw.match_weather.
+def test_main_rejects_the_removed_weather_modes() -> None:
+    """`weather` and `transform-weather` used to be CLI modes. They must fail
+    loudly now rather than fall through to the season-backfill branch and
+    surface as an unrelated int() error, or worse, run something else.
     """
-    captured: dict[str, object] = {}
-
-    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        captured["args"] = args
-        captured["kwargs"] = kwargs
-        return subprocess.CompletedProcess(args, returncode=0, stdout="", stderr="")
-
-    monkeypatch.setattr("football_pipeline.pipeline.subprocess.run", fake_run)
-
-    from football_pipeline.pipeline import DBT_EXECUTABLE, TRANSFORM_DIR, run_transform_weather
-
-    run_transform_weather()
-
-    assert captured["args"] == [
-        str(DBT_EXECUTABLE), "build",
-        "--target", "prod",
-        "--select", "source:raw.match_weather+",
-    ]
-    kwargs = captured["kwargs"]
-    assert kwargs["cwd"] == TRANSFORM_DIR  # type: ignore[index]
-
-
-def test_run_transform_weather_raises_on_nonzero_exit(monkeypatch: pytest.MonkeyPatch) -> None:
-    def fake_run(args: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="boom")
-
-    monkeypatch.setattr("football_pipeline.pipeline.subprocess.run", fake_run)
-
-    from football_pipeline.pipeline import run_transform_weather
-
-    with pytest.raises(RuntimeError, match="dbt build failed"):
-        run_transform_weather()
-
-
-def test_main_transform_weather_mode_runs_dbt_build(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: list[str] = []
-    monkeypatch.setattr("football_pipeline.pipeline.run", lambda seasons: calls.append("run"))
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.run_weather", lambda: calls.append("weather")
-    )
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.run_transform", lambda: calls.append("transform")
-    )
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.run_transform_weather",
-        lambda: calls.append("transform-weather"),
-    )
-
     from football_pipeline.pipeline import main
 
-    main(["transform-weather"])
-
-    assert calls == ["transform-weather"]
-
-
-def test_run_weather_uses_duckdb_selection_by_default(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    monkeypatch.delenv("PIPELINE_DESTINATION", raising=False)
-    calls: list[str] = []
-
-    class FakePipeline:
-        def run(self, source: object) -> str:
-            return "ran"
-
-    monkeypatch.setattr("football_pipeline.pipeline.dlt.pipeline", lambda **kwargs: FakePipeline())
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.select_matches_needing_weather",
-        lambda db_path: calls.append("duckdb_select") or [],
-    )
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.select_matches_needing_weather_bigquery",
-        lambda client: calls.append("bigquery_select") or [],
-    )
-
-    from football_pipeline.pipeline import run_weather
-
-    run_weather(db_path=tmp_path / "test.duckdb")
-
-    assert calls == ["duckdb_select"]
-
-
-def test_run_weather_uses_bigquery_selection_and_destination_when_set(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Pins the one behavioral change this task made to run_weather() --
-    without this test, reverting the PIPELINE_DESTINATION branch back to
-    always calling the DuckDB path would leave the suite green.
-    """
-    monkeypatch.setenv("PIPELINE_DESTINATION", "bigquery")
-    monkeypatch.setenv("GCP_PROJECT", "football-tracker-508022")
-    captured_kwargs: dict[str, object] = {}
-    calls: list[str] = []
-
-    class FakePipeline:
-        def run(self, source: object) -> str:
-            return "ran"
-
-    def fake_pipeline(**kwargs: object) -> object:
-        captured_kwargs.update(kwargs)
-        return FakePipeline()
-
-    monkeypatch.setattr("football_pipeline.pipeline.dlt.pipeline", fake_pipeline)
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.bigquery.Client", lambda project: object()
-    )
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.select_matches_needing_weather_bigquery",
-        lambda client: calls.append("bigquery_select") or [],
-    )
-    monkeypatch.setattr(
-        "football_pipeline.pipeline.select_matches_needing_weather",
-        lambda db_path: calls.append("duckdb_select") or [],
-    )
-
-    from football_pipeline.pipeline import run_weather
-
-    run_weather()
-
-    assert calls == ["bigquery_select"]
-    destination = captured_kwargs["destination"]
-    assert destination.destination_name == "bigquery"  # type: ignore[attr-defined]
+    for mode in ("weather", "transform-weather"):
+        with pytest.raises(SystemExit):
+            main([mode])

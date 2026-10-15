@@ -165,8 +165,7 @@ def iter_teams(
                 "area_id": area.get("id"),
                 "area_name": area.get("name"),
                 # FIFA-style code ("ENG"), not ISO. Kept because it is an
-                # identifier rather than a display label -- venue geocoding
-                # maps it to an ISO country for Nominatim.
+                # identifier rather than a display label.
                 "area_code": area.get("code"),
                 "coach_id": coach.get("id"),
                 "coach_name": coach.get("name"),

@@ -1,6 +1,6 @@
 """One-time extraction of each club's dominant crest color, cached to a
-committed file -- same "compute once, commit the result" discipline as
-the venue geocoding backfill (CLAUDE.md). Crests come from
+committed file, so a rerun is a deliberate act and the app never calls
+out for colors at request time. Crests come from
 crests.football-data.org with no CORS headers (confirmed via curl), so
 this has to run server-side in Python, not in the browser.
 

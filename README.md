@@ -26,10 +26,9 @@ shipping quickly.
 ## Architecture
 
 ```
-football-data.org API ─┐
-OpenStreetMap Nominatim ┼─► rate-limited ingestion (dlt)
-Open-Meteo ─────────────┘      ingest → transform → weather → transform
-                                (4-stage, fail-fast Cloud Workflow, nightly)
+football-data.org API ──► rate-limited ingestion (dlt)
+                              ingest → transform
+                              (fail-fast Cloud Workflow, nightly)
                            │
                            ▼
                 raw tables in BigQuery (DuckDB locally)
@@ -41,11 +40,11 @@ Open-Meteo ─────────────┘      ingest → transform 
         FastAPI (TTL-cached query layer) ──► React + TypeScript (Vite)
 ```
 
-The warehouse is a Kimball-style dimensional model: 6 conformed dimensions
-(competitions, seasons, teams, players, venues, dates) and 5 fact tables
-(matches, standings snapshots, scorers, match weather, a team-perspective
-unpivot of matches), with 5 derived marts on top for form, streaks,
-head-to-head and season-position reconstruction. 168 automated dbt tests
+The warehouse is a Kimball-style dimensional model: 5 conformed dimensions
+(competitions, seasons, teams, players, dates) and 4 fact tables
+(matches, standings snapshots, scorers, a team-perspective unpivot of
+matches), with 5 derived marts on top for form, streaks,
+head-to-head and season-position reconstruction. 150 automated dbt tests
 (generic + unit tests with inline fixtures) enforce it.
 
 A few design points worth noting:
@@ -69,8 +68,6 @@ A few design points worth noting:
 | Source | Auth | Limit | Provides |
 |---|---|---|---|
 | [football-data.org](https://www.football-data.org) v4 | API token | 10 req/min | competitions, seasons, teams, squads, matches, standings, scorers |
-| [OpenStreetMap Nominatim](https://nominatim.org) | none | 1 req/sec | venue geocoding (one-time) |
-| [Open-Meteo](https://open-meteo.com) | none | ~10k calls/day | matchday forecast and historical weather |
 
 Competitions covered: Premier League (`PL`), La Liga (`PD`), Bundesliga
 (`BL1`), Serie A (`SA`), Ligue 1 (`FL1`), UEFA Champions League (`CL`) —
@@ -108,10 +105,8 @@ football_pipeline/     Ingestion
   rate_limiter.py         token-bucket limiter (10 req/min)
   client.py                rate-limited HTTP client
   football_data_source.py  dlt source definitions
-  venues.py                one-time venue geocoding
-  weather_source.py        per-venue weather
   pipeline.py               pipeline entrypoint
-transform/              dbt project (staging -> marts, seeds for CI)
+transform/              dbt project (staging -> marts)
 orchestration/          Dagster asset definitions (local dev)
 warehouse/              connector-agnostic query layer (DuckDB/BigQuery)
 backend/                FastAPI app: routers + TTL query cache

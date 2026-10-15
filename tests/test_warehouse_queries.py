@@ -5,8 +5,7 @@ beyond "does it run" -- that's covered by manually running the app (see
 docs/plans/2026-09-07-competition-hub.md Task 7). get_standings() is the
 one function with real branching logic (is there a current league table,
 or not), so it's the one function with a real test here, against a small
-hand-built DuckDB fixture -- same pattern as tests/test_weather_source.py's
-build_db().
+hand-built DuckDB fixture (see build_db() below).
 """
 
 import datetime

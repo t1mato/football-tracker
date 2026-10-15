@@ -1,29 +1,14 @@
-"""Dagster assets: dlt ingestion (football-data.org + Open-Meteo weather) and
-dbt, as one lineage graph.
+"""Dagster assets: dlt ingestion (football-data.org) and dbt, as one lineage graph.
 
 No dagster-dbt: its current release line requires dbt-core<1.12, which
 conflicts with this project's dbt-core>=1.12 floor (verified against 1.12.3
-all session -- see docs/specs/2026-09-07-weather-ingestion-design.md and the
-"Verified dbt behaviour" section of PLAN.md). Rather than downgrade a
-deliberately-pinned, already-verified dependency to fit an orchestration
-library, dbt is invoked the same way the Makefile already does: a plain
-`dbt build` subprocess call, cwd'd into the transform/ directory. The
-trade-off is coarse-grained lineage -- one Dagster asset per dbt build
-step, not one per dbt model -- which is an acceptable loss for what this
+all session -- see the "Verified dbt behaviour" section of PLAN.md). Rather
+than downgrade a deliberately-pinned, already-verified dependency to fit an
+orchestration library, dbt is invoked the same way the Makefile already does:
+a plain `dbt build` subprocess call, cwd'd into the transform/ directory. The
+trade-off is coarse-grained lineage -- one Dagster asset for the whole dbt
+build, not one per dbt model -- which is an acceptable loss for what this
 project actually needs from orchestration right now.
-
-Two dbt build steps, not one -- there's a genuine dependency cycle through
-"dbt" as a whole: weather_ingestion needs fct_matches/dim_venues (built by
-dbt) before it can run, and stg_match_weather (also built by dbt) needs
-weather_ingestion's output. One subprocess call to `dbt build` cannot pause
-partway through to wait for an external asset, so the manifest is split at
-that one seam (`source:raw.match_weather+` vs. everything else) into two
-separate invocations, with weather_ingestion materializing in between. The
-source, not the stg_match_weather model, is the selector root -- two
-generic tests are declared directly on the raw.match_weather source in
-_sources.yml, upstream of stg_match_weather, so a model-rooted `+` selector
-misses them (see football_pipeline.pipeline.run_transform's docstring for
-the same gap and how it was confirmed live).
 
 Assumes `dagster dev` (or any invocation of this module) runs from the repo
 root, same as `python -m football_pipeline.pipeline` already does today --
@@ -41,26 +26,20 @@ from pathlib import Path
 
 from dagster import AssetExecutionContext, Definitions, asset
 
-from football_pipeline.pipeline import ingest_current_season, run_weather
+from football_pipeline.pipeline import ingest_current_season
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TRANSFORM_DIR = REPO_ROOT / "transform"
 DBT_EXECUTABLE = REPO_ROOT / ".venv" / "bin" / "dbt"
 
 
-def _run_dbt_build(context: AssetExecutionContext, *, select: str | None = None,
-                    exclude: str | None = None) -> None:
+def _run_dbt_build(context: AssetExecutionContext) -> None:
     args = [str(DBT_EXECUTABLE), "build"]
-    if select is not None:
-        args += ["--select", select]
-    if exclude is not None:
-        args += ["--exclude", exclude]
 
     result = subprocess.run(  # nosec B603 -- args is built entirely from hardcoded
-        # strings (DBT_EXECUTABLE, "build", "--select"/"--exclude" plus the
-        # literal select/exclude values this file's own asset functions pass
-        # in below); no external/untrusted input reaches this call, and
-        # shell=True is deliberately not used.
+        # strings (DBT_EXECUTABLE and the literal "build"); no
+        # external/untrusted input reaches this call, and shell=True is
+        # deliberately not used.
         args, cwd=TRANSFORM_DIR, capture_output=True, text=True, check=False
     )
     context.log.info(result.stdout)
@@ -81,29 +60,8 @@ def football_data_ingestion() -> None:
 
 @asset(deps=[football_data_ingestion], group_name="transform")
 def star_schema_build(context: AssetExecutionContext) -> None:
-    """Everything except stg_match_weather and its descendant, fct_match_weather --
-    those need weather_ingestion's output first (see module docstring).
-    """
-    _run_dbt_build(context, exclude="source:raw.match_weather+")
+    """The whole dbt project, built once after ingestion."""
+    _run_dbt_build(context)
 
 
-@asset(deps=[star_schema_build], group_name="ingestion")
-def weather_ingestion() -> None:
-    """Depends on fct_matches/dim_venues, not just raw.matches/raw.teams --
-    the match-selection query in weather_source.py reads the star schema
-    directly, per docs/specs/2026-09-07-weather-ingestion-design.md.
-    """
-    run_weather()
-
-
-@asset(deps=[weather_ingestion], group_name="transform")
-def weather_dependent_build(context: AssetExecutionContext) -> None:
-    """stg_match_weather and fct_match_weather -- the two models excluded
-    from star_schema_build above.
-    """
-    _run_dbt_build(context, select="source:raw.match_weather+")
-
-
-defs = Definitions(
-    assets=[football_data_ingestion, star_schema_build, weather_ingestion, weather_dependent_build],
-)
+defs = Definitions(assets=[football_data_ingestion, star_schema_build])
