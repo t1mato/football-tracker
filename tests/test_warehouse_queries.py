@@ -21,6 +21,7 @@ from warehouse.queries import (
     _app_destination,
     get_competition_seasons,
     get_competitions,
+    get_connection,
     get_cross_league_stats,
     get_current_season_id,
     get_current_teams,
@@ -282,23 +283,10 @@ def test_get_connection_caps_bigquery_bytes_billed(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr("warehouse.queries.bigquery.Client", fake_client)
 
-    from app.queries import get_connection
+    get_connection()
 
-    get_connection.clear()  # st.cache_resource -- avoid a cached connection from an earlier test
-    try:
-        get_connection()
-
-        job_config = captured_kwargs["default_query_job_config"]
-        assert job_config.maximum_bytes_billed == 1_000_000_000
-    finally:
-        # Without this, the fake BigQuery connection this test just cached
-        # under get_connection() stays cached after APP_DESTINATION reverts
-        # (monkeypatch undoes the env var/Client patch, not the
-        # st.cache_resource entry) -- the next test to call get_connection()
-        # for real work gets this test's fake object() back and breaks with
-        # an unrelated AttributeError. Latent until a page (Leagues) started
-        # actually calling get_connection() in the app-loading tests.
-        get_connection.clear()
+    job_config = captured_kwargs["default_query_job_config"]
+    assert job_config.maximum_bytes_billed == 1_000_000_000
 
 
 def build_db(tmp_path: Path) -> Path:
