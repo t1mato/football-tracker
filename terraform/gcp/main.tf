@@ -192,47 +192,6 @@ resource "google_cloud_run_v2_job" "transform" {
   depends_on = [google_project_service.run]
 }
 
-resource "google_cloud_run_v2_job" "weather" {
-  name     = "weather"
-  project  = var.project_id
-  location = var.region
-  # Off so the next change can remove this job: the provider refuses to
-  # destroy a job while protection is on, and flipping it needs its own
-  # apply before the resource block can go.
-  deletion_protection = false
-
-  template {
-    template {
-      service_account = google_service_account.pipeline_runner.email
-      # Cloud Run Jobs' 600s default was measured live to be too short for the
-      # first-ever BigQuery weather run: run_weather() buffers everything
-      # (Open-Meteo calls, rate-limited) before dlt's load stage ever writes a
-      # row, so a timeout kill mid-run discards the whole attempt, not just
-      # the slow part -- confirmed live by two successive 600s-timeout kills
-      # that both left raw.match_weather nonexistent in BigQuery. 3600s covers
-      # a full current-season backlog with margin; nightly incremental runs
-      # will finish in a small fraction of it.
-      timeout = "3600s"
-
-      containers {
-        image = local.pipeline_image
-        args  = ["weather"]
-
-        env {
-          name  = "PIPELINE_DESTINATION"
-          value = "bigquery"
-        }
-        env {
-          name  = "GCP_PROJECT"
-          value = var.project_id
-        }
-      }
-    }
-  }
-
-  depends_on = [google_project_service.run]
-}
-
 resource "google_cloud_run_v2_service" "app" {
   name     = "app"
   project  = var.project_id
