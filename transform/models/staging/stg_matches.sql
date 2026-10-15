@@ -38,15 +38,6 @@ select
     kickoff_utc,
     cast(kickoff_naive as date) as kickoff_date_utc,
 
-    -- SCHEDULED means "date known, kickoff time not confirmed", and the
-    -- source serialises that as exactly 00:00:00Z. Emitting 0 here would
-    -- give 1,119 fixtures a midnight kickoff hour for a 19:00 kickoff, and it
-    -- would fail silently: every row gets a plausible number.
-    case
-        when status_raw = 'SCHEDULED' then null
-        else extract(hour from kickoff_naive)
-    end as kickoff_hour_utc,
-
     -- Derived from the status, not from the midnight value. "Time not
     -- confirmed" is the source's own contract; midnight is only how it
     -- serialises. assert_unconfirmed_are_midnight checks they agree.

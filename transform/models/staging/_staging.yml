@@ -136,11 +136,11 @@ unit_tests:
       rows:
         - {match_id: 1, status: 'AWARDED', status_raw: 'AWARDED'}
 
-  - name: an_unconfirmed_kickoff_has_no_hour
+  - name: a_scheduled_match_is_flagged_as_an_unconfirmed_kickoff
     description: >
       Every SCHEDULED match sits at exactly 00:00:00Z -- the source saying
-      the time is not confirmed. Emitting hour 0 would give a 19:00 fixture
-      a midnight kickoff hour, silently.
+      the time is not confirmed. The flag comes from the status, not from
+      the midnight value, so a TIMED fixture at a real hour stays confirmed.
     model: stg_matches
     given:
       - input: source('raw', 'matches')
@@ -149,8 +149,8 @@ unit_tests:
           - {id: 2, status: 'TIMED',     utc_date: '2026-10-01 19:00:00+00'}
     expect:
       rows:
-        - {match_id: 1, kickoff_hour_utc: null, kickoff_time_confirmed: false}
-        - {match_id: 2, kickoff_hour_utc: 19,   kickoff_time_confirmed: true}
+        - {match_id: 1, kickoff_time_confirmed: false}
+        - {match_id: 2, kickoff_time_confirmed: true}
 
   - name: the_utc_date_does_not_follow_the_session_timezone
     description: >
@@ -163,4 +163,4 @@ unit_tests:
           - {id: 1, status: 'FINISHED', utc_date: '2023-08-12 00:30:00+00'}
     expect:
       rows:
-        - {match_id: 1, kickoff_date_utc: '2023-08-12', kickoff_hour_utc: 0}
+        - {match_id: 1, kickoff_date_utc: '2023-08-12'}

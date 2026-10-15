@@ -8,7 +8,6 @@ select
     m.season_id,
     m.kickoff_utc,
     m.kickoff_date_utc,
-    m.kickoff_hour_utc,
     m.kickoff_time_confirmed,
     m.status,
     m.status_raw,

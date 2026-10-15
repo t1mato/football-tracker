@@ -14,8 +14,7 @@
 select
     match_id,
     kickoff_utc,
-    kickoff_time_confirmed,
-    kickoff_hour_utc
+    kickoff_time_confirmed
 from {{ ref('stg_matches') }}
 where kickoff_time_confirmed = (extract(hour from {{ to_utc_naive('kickoff_utc') }}) = 0
                                 and extract(minute from {{ to_utc_naive('kickoff_utc') }}) = 0)
