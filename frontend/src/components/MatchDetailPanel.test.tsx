@@ -11,50 +11,29 @@ function renderWithQueryClient(ui: React.ReactElement) {
 }
 
 describe('MatchDetailPanel', () => {
-  it('renders venue and weather detail for the given match', async () => {
+  it('shows the home team\'s venue name and nothing else', async () => {
     server.use(
       http.get('/api/matches/1001', () =>
-        HttpResponse.json({
-          match_id: 1001,
-          venue_display_name: 'Anfield',
-          venue_needs_review: false,
-          capacity: 61276,
-          latitude: 53.4308,
-          longitude: -2.9608,
-          temperature_2m: 12.5,
-          precipitation: 0,
-          wind_speed_10m: 15,
-          weather_data_type: 'forecast',
-        })
+        HttpResponse.json({ match_id: 1001, venue_name: 'Anfield' })
       )
     )
 
     renderWithQueryClient(<MatchDetailPanel matchId={1001} />)
 
     expect(await screen.findByText('Anfield')).toBeInTheDocument()
-    expect(await screen.findByText(/61,276/)).toBeInTheDocument()
+    expect(screen.queryByText(/weather/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/capacity/i)).not.toBeInTheDocument()
   })
 
-  it('shows a not-yet-resolved message when the venue needs review', async () => {
+  it('says the venue is unavailable when the API reports none', async () => {
     server.use(
       http.get('/api/matches/1002', () =>
-        HttpResponse.json({
-          match_id: 1002,
-          venue_display_name: null,
-          venue_needs_review: true,
-          capacity: null,
-          latitude: null,
-          longitude: null,
-          temperature_2m: null,
-          precipitation: null,
-          wind_speed_10m: null,
-          weather_data_type: null,
-        })
+        HttpResponse.json({ match_id: 1002, venue_name: null })
       )
     )
 
     renderWithQueryClient(<MatchDetailPanel matchId={1002} />)
 
-    expect(await screen.findByText(/venue location not yet resolved/i)).toBeInTheDocument()
+    expect(await screen.findByText(/venue not available/i)).toBeInTheDocument()
   })
 })

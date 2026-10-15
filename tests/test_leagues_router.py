@@ -28,10 +28,13 @@ def client(tmp_path: Path) -> TestClient:
             (2425, 'PL', '2024-08-01', '2025-05-31')
     """)
     con.execute("""
-        create table dim_teams (team_id bigint, team_name varchar, crest varchar)
+        create table dim_teams (
+            team_id bigint, team_name varchar, crest varchar, venue_name varchar
+        )
     """)
     con.execute(
-        "insert into dim_teams values (1, 'Team A', 'a.png'), (2, 'Team B', 'b.png')"
+        "insert into dim_teams values "
+        "(1, 'Team A', 'a.png', 'Anfield'), (2, 'Team B', 'b.png', NULL)"
     )
     con.execute("""
         create table fct_matches (
@@ -39,26 +42,13 @@ def client(tmp_path: Path) -> TestClient:
             home_team_id bigint, away_team_id bigint, status varchar,
             kickoff_utc timestamp, kickoff_time_confirmed boolean,
             stage varchar, matchday integer,
-            full_time_home integer, full_time_away integer, venue_key varchar
+            full_time_home integer, full_time_away integer
         )
     """)
     con.execute("""
         insert into fct_matches values
             (1001, 'PL', 2526, 1, 2, 'FINISHED', '2026-01-10 15:00:00', true,
-             'REGULAR_SEASON', 20, 2, 1, NULL)
-    """)
-    con.execute("""
-        create table dim_venues (
-            venue_key varchar, canonical_venue_name varchar,
-            display_name varchar, capacity integer,
-            latitude double, longitude double, needs_review boolean
-        )
-    """)
-    con.execute("""
-        create table fct_match_weather (
-            match_id bigint, temperature_2m double, precipitation double,
-            wind_speed_10m double, data_type varchar
-        )
+             'REGULAR_SEASON', 20, 2, 1)
     """)
     con.execute("""
         create table dim_competitions (
@@ -152,6 +142,7 @@ def test_match_detail_returns_the_real_match(client: TestClient) -> None:
     body = response.json()
     assert body["home_team_name"] == "Team A"
     assert body["full_time_home"] == 2
+    assert body["venue_name"] == "Anfield"
 
 
 def test_match_detail_404s_for_an_unknown_match_id(client: TestClient) -> None:

@@ -555,35 +555,26 @@ def build_match_detail_db(tmp_path: Path) -> Path:
             match_id bigint, competition_code varchar, season_id integer,
             matchday integer, stage varchar,
             kickoff_utc timestamp, kickoff_time_confirmed boolean, status varchar,
-            home_team_id bigint, away_team_id bigint, venue_key varchar,
+            home_team_id bigint, away_team_id bigint,
             full_time_home integer, full_time_away integer
         );
-        create table main.dim_teams (team_id bigint, team_name varchar);
-        create table main.dim_venues (
-            venue_key varchar, canonical_venue_name varchar, display_name varchar,
-            capacity integer, latitude double, longitude double, needs_review boolean
+        create table main.dim_teams (
+            team_id bigint, team_name varchar, venue_name varchar
         );
-        create table main.fct_match_weather (
-            match_id bigint, temperature_2m double, precipitation double,
-            wind_speed_10m double, data_type varchar
-        );
-        insert into main.dim_teams values (1, 'Team A'), (2, 'Team B')
+        insert into main.dim_teams values
+            (1, 'Team A', 'Anfield'), (2, 'Team B', null)
     """)
     con.close()
     return db_path
 
 
-def test_match_detail_joins_teams_venue_and_weather(tmp_path: Path) -> None:
+def test_match_detail_joins_teams_and_the_home_teams_venue(tmp_path: Path) -> None:
     db_path = build_match_detail_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.fct_matches values
             (1, 'PL', 2502, 3, 'REGULAR_SEASON', '2026-09-12 14:00:00', true,
-             'FINISHED', 1, 2, 'v1', 2, 1);
-        insert into main.dim_venues values
-            ('v1', 'Anfield', 'Anfield, Liverpool', 54074, 53.4308, -2.9608, false);
-        insert into main.fct_match_weather values
-            (1, 18.5, 0.0, 12.0, 'actual')
+             'FINISHED', 1, 2, 2, 1)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
@@ -593,24 +584,21 @@ def test_match_detail_joins_teams_venue_and_weather(tmp_path: Path) -> None:
     assert detail is not None
     assert detail["home_team_name"] == "Team A"
     assert detail["away_team_name"] == "Team B"
-    assert detail["canonical_venue_name"] == "Anfield"
-    assert detail["capacity"] == 54074
-    assert detail["temperature_2m"] == 18.5
-    assert detail["weather_data_type"] == "actual"
+    assert detail["venue_name"] == "Anfield"
 
 
-def test_match_detail_handles_no_weather_and_unresolved_venue(tmp_path: Path) -> None:
-    """No fct_match_weather row, and a needs_review venue with null coordinates
-    -- both real, both must produce nulls, not an error.
+def test_match_detail_has_a_null_venue_when_the_home_team_has_none(
+    tmp_path: Path,
+) -> None:
+    """The API really does return venue null for some teams (Sabah FK in the
+    live warehouse). That must surface as a null, not an error or a dropped row.
     """
     db_path = build_match_detail_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.fct_matches values
             (2, 'PL', 2502, 4, 'REGULAR_SEASON', '2026-09-19 15:00:00', true,
-             'SCHEDULED', 1, 2, 'v2', null, null);
-        insert into main.dim_venues values
-            ('v2', 'Griffin Park', 'Griffin Park (demolished)', null, null, null, true)
+             'SCHEDULED', 2, 1, null, null)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
@@ -618,34 +606,31 @@ def test_match_detail_handles_no_weather_and_unresolved_venue(tmp_path: Path) ->
     detail = get_match_detail(con, 2)
 
     assert detail is not None
-    assert detail["venue_needs_review"] == True  # noqa: E712
-    assert pd.isna(detail["latitude"])
-    assert pd.isna(detail["weather_data_type"])
+    assert pd.isna(detail["venue_name"])
 
 
-def test_match_detail_handles_a_null_venue_key(tmp_path: Path) -> None:
-    """A match whose venue_key is itself null -- no dim_venues row to join
-    to at all, distinct from test_match_detail_handles_no_weather_and_
-    unresolved_venue above (which joins to a real, resolved-false venue
-    row). This is the exact state the final whole-branch review found live
-    in the warehouse: 4 Champions League matches (season 2557) with a null
-    venue_key. The LEFT JOIN still produces a row, but every dim_venues
-    column -- including venue_needs_review -- comes back null, not false.
-    """
+def test_match_detail_no_longer_carries_geocoding_or_weather_columns(
+    tmp_path: Path,
+) -> None:
     db_path = build_match_detail_db(tmp_path)
     con = duckdb.connect(str(db_path))
     con.execute("""
         insert into main.fct_matches values
-            (3, 'CL', 2557, null, 'LEAGUE_STAGE', '2026-09-12 14:00:00', true,
-             'SCHEDULED', 1, 2, null, null, null)
+            (1, 'PL', 2502, 3, 'REGULAR_SEASON', '2026-09-12 14:00:00', true,
+             'FINISHED', 1, 2, 2, 1)
     """)
     con.close()
     con = duckdb.connect(str(db_path), read_only=True)
 
-    detail = get_match_detail(con, 3)
+    detail = get_match_detail(con, 1)
 
     assert detail is not None
-    assert pd.isna(detail["venue_needs_review"])
+    removed = {
+        "venue_display_name", "venue_needs_review", "canonical_venue_name",
+        "capacity", "latitude", "longitude",
+        "temperature_2m", "precipitation", "wind_speed_10m", "weather_data_type",
+    }
+    assert removed.isdisjoint(detail.index)
 
 
 def test_match_detail_returns_none_for_an_unknown_match_id(tmp_path: Path) -> None:

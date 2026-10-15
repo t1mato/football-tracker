@@ -2,15 +2,7 @@ import { useQuery } from '@tanstack/react-query'
 
 export interface MatchDetail {
   match_id: number
-  venue_display_name: string | null
-  venue_needs_review: boolean
-  capacity: number | null
-  latitude: number | null
-  longitude: number | null
-  temperature_2m: number | null
-  precipitation: number | null
-  wind_speed_10m: number | null
-  weather_data_type: string | null
+  venue_name: string | null
 }
 
 async function fetchMatchDetail(matchId: number): Promise<MatchDetail> {

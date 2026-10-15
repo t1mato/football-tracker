@@ -32,15 +32,7 @@ describe('RecentResultsTab', () => {
       http.get('/api/matches/1001', () =>
         HttpResponse.json({
           match_id: 1001,
-          venue_display_name: 'Anfield',
-          venue_needs_review: false,
-          capacity: 61276,
-          latitude: 53.4308,
-          longitude: -2.9608,
-          temperature_2m: 12.5,
-          precipitation: 0,
-          wind_speed_10m: 15,
-          weather_data_type: 'forecast',
+          venue_name: 'Anfield',
         })
       )
     )

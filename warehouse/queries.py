@@ -973,9 +973,14 @@ def get_team_upcoming(_con: ConnectionLike, team_id: int) -> pd.DataFrame:
 def get_match_detail(
     _con: ConnectionLike, match_id: int
 ) -> pd.Series | None:
-    """One match's full detail: teams, venue (nullable -- a needs_review
-    venue has no coordinates), weather (nullable -- no row until ingested,
-    or kickoff not yet confirmed). None if match_id doesn't exist at all.
+    """One match's full detail: teams and venue. None if match_id doesn't
+    exist at all.
+
+    The venue is the HOME team's current ground, read straight from
+    dim_teams: football-data.org carries no venue on a match, only on a
+    team, so this is a snapshot of where that team plays now -- not where
+    this particular fixture was held. venue_name is null for teams the API
+    reports no ground for.
     """
     df = _con.execute(
         """
@@ -983,19 +988,10 @@ def get_match_detail(
                f.kickoff_utc, f.kickoff_time_confirmed, f.status,
                f.full_time_home, f.full_time_away,
                ht.team_name as home_team_name, aw.team_name as away_team_name,
-               v.canonical_venue_name, v.display_name as venue_display_name,
-               v.capacity, v.latitude, v.longitude, v.needs_review as venue_needs_review,
-               w.temperature_2m, w.precipitation, w.wind_speed_10m,
-               w.data_type as weather_data_type
+               ht.venue_name
         from fct_matches f
         join dim_teams ht on f.home_team_id = ht.team_id
         join dim_teams aw on f.away_team_id = aw.team_id
-        left join dim_venues v on f.venue_key = v.venue_key
-        -- On BigQuery, fct_match_weather is a manually-created, permanently-empty
-        -- stand-in (not managed by dbt) until weather ingestion gains real BigQuery
-        -- support -- rebuilding the BigQuery dataset from dbt alone will not
-        -- recreate this table.
-        left join fct_match_weather w on f.match_id = w.match_id
         where f.match_id = ?
         """,
         [match_id],
