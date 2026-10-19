@@ -201,23 +201,19 @@ resource "google_cloud_run_v2_service" "app" {
   # decision this resource makes and shouldn't be implied.
   ingress = "INGRESS_TRAFFIC_ALL"
 
+  # Service-level scaling: Cloud Run reports these zeros back even when
+  # unset; stated so the plan has no phantom diff.
+  scaling {
+    min_instance_count    = 0
+    manual_instance_count = 0
+  }
+
   template {
     service_account = google_service_account.app_runner.email
 
-    # Streamlit keeps per-session UI state (selected competition, filters,
-    # etc.) in the specific server process a browser's websocket first
-    # connected to. With max_instance_count > 1, a reconnect (network blip,
-    # backgrounded tab) that lands on the *other* instance has no memory of
-    # that session -- session_affinity keeps a browser pinned to the same
-    # instance across reconnects.
-    session_affinity = true
-
-    # Cloud Run's request timeout defaults to 300s and applies to long-lived
-    # connections, including the websocket Streamlit uses for live UI
-    # updates. Without raising it, a dashboard tab left open past 5 minutes
-    # gets its websocket closed by the platform (Streamlit reconnects, but
-    # the user sees a visible interruption).
-    timeout = "3600s"
+    # Stated, not left unset: an unset timeout keeps whatever is live, and
+    # this API only makes short request/response calls.
+    timeout = "300s"
 
     scaling {
       min_instance_count = 0
@@ -229,10 +225,13 @@ resource "google_cloud_run_v2_service" "app" {
 
       resources {
         limits = {
-          # Cloud Run's default (512MiB) is tight for streamlit + pandas +
-          # pyarrow resident in memory; cheap insurance against an opaque
+          # Cloud Run's default (512MiB) is tight for pandas + the BigQuery
+          # client resident in memory; cheap insurance against an opaque
           # 500 under real concurrency.
           memory = "1Gi"
+          # Cloud Run reports this default back; stating it keeps the plan
+          # from showing it as a change to remove.
+          cpu = "1000m"
         }
       }
 
