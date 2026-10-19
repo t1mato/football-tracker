@@ -30,7 +30,7 @@ jobs:
       # is SQL/YAML, not Python, and scratch/ is already excluded via
       # pyproject.toml's [tool.bandit] config.
       - name: Bandit
-        run: .venv/bin/bandit -c pyproject.toml -r app football_pipeline orchestration
+        run: .venv/bin/bandit -c pyproject.toml -r football_pipeline orchestration backend warehouse
 
       - name: Pytest
         run: .venv/bin/pytest
@@ -40,3 +40,32 @@ jobs:
       # timezone-independence check -- no live API, no secrets needed.
       - name: dbt build + tz-check
         run: make ci
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+
+      # Same major as Dockerfile.app's build stage, so CI and the image
+      # compile the frontend with the same Node.
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - name: Oxlint
+        run: npm run lint
+
+      - name: Vitest
+        run: npm test
+
+      # tsc -b && vite build: the type check and the production bundle,
+      # the exact step Dockerfile.app runs.
+      - name: Type check and build
+        run: npm run build

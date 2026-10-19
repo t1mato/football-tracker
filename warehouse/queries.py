@@ -193,7 +193,7 @@ def get_current_season_id(
     ).fetchone()
     # MAX(...) aggregate always returns exactly one row (possibly NULL), never zero rows,
     # so fetchone() always succeeds. Unpack directly.
-    assert row is not None
+    assert row is not None  # nosec B101 -- type narrowing for mypy, not a runtime guard
     season_id = cast(int, row[0])
     return season_id
 
@@ -210,7 +210,7 @@ def get_standings(
     ).fetchone()
     # MAX(...) aggregate always returns exactly one row (possibly NULL), never zero rows,
     # so fetchone() always succeeds. Unpack directly.
-    assert latest is not None
+    assert latest is not None  # nosec B101 -- type narrowing for mypy, not a runtime guard
     latest_snapshot_date = latest[0]
 
     if latest_snapshot_date is None:
